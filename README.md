@@ -58,7 +58,7 @@ INSERT INTO app.Concept
 SELECT 
     [ExternalId]				   = 'UMLS_AUI:' + O.AUI
    ,[ExternalParentId]			           = 'UMLS_AUI:' + O.ParentAUI
-   ,[IsPatientCountAutoCalculated] = 1
+   ,[IsPatientCountAutoCalculated]                 = 1
    ,[IsNumeric]					   = 0		
    ,[IsParent]					   = CASE WHEN EXISTS (SELECT 1 FROM #Output O2 WHERE O.AUI = O2.ParentAUI) THEN 1 ELSE 0 END
    ,[IsRoot]					   = CASE WHEN ParentAUI IS NULL THEN 1 ELSE 0 END

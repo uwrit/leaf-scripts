@@ -56,19 +56,19 @@ INSERT INTO app.Concept
   ,[ContentLastUpdateDateTime]
 )
 SELECT 
-	[ExternalId]				   = 'UMLS_AUI:' + O.AUI
-   ,[ExternalParentId]			   = 'UMLS_AUI:' + O.ParentAUI
+    [ExternalId]				   = 'UMLS_AUI:' + O.AUI
+   ,[ExternalParentId]			           = 'UMLS_AUI:' + O.ParentAUI
    ,[IsPatientCountAutoCalculated] = 1
    ,[IsNumeric]					   = 0		
    ,[IsParent]					   = CASE WHEN EXISTS (SELECT 1 FROM #Output O2 WHERE O.AUI = O2.ParentAUI) THEN 1 ELSE 0 END
    ,[IsRoot]					   = CASE WHEN ParentAUI IS NULL THEN 1 ELSE 0 END
-   ,[IsSpecializable]			   = 0
+   ,[IsSpecializable]			           = 0
    ,[SqlSetId]					   = @SqlSetId
    ,[SqlSetWhere]				   = '@.CodingSystem = ''ICD10'' AND @.Code ' + O.SqlSetWhere
    ,[UiDisplayName]				   = O.uiDisplayName
    ,[UiDisplayText]				   = 'Had diagnosis of ' + O.UiDisplayName
    ,[AddDateTime]				   = GETDATE()
-   ,[ContentLastUpdateDateTime]    = GETDATE()
+   ,[ContentLastUpdateDateTime]                    = GETDATE()
 FROM #Output O
 WHERE NOT EXISTS (SELECT 1
 				  FROM app.Concept c

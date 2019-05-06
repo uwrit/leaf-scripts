@@ -71,8 +71,8 @@ SELECT
    ,[ContentLastUpdateDateTime]                    = GETDATE()
 FROM #Output O
 WHERE NOT EXISTS (SELECT 1
-				  FROM app.Concept c
-				  WHERE 'UMLS_AUI:' + o.AUI = c.ExternalID)
+		  FROM app.Concept c
+		  WHERE 'UMLS_AUI:' + o.AUI = c.ExternalID)
 ```
 
 Note that above in 

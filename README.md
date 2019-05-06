@@ -34,7 +34,7 @@ INSERT INTO #Output
 EXEC dbo.sp_GetConceptOntologyFromUMLS 'ICD10CM'
 ```
 
-2) Find our diagnosis `SQL Set` and insert the hierarchical UMLS rows into the `app.Concept` table:
+2) Find the diagnosis `SQL Set` ID and insert the hierarchical UMLS rows into the `app.Concept` table:
 
 ```sql
 DECLARE @SqlSetId INT = (SELECT TOP (1) S.Id FROM app.ConceptSqlSet S WHERE S.SqlSetFrom = 'dbo.diagnosis')

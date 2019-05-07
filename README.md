@@ -6,7 +6,7 @@ This example assumes that you have an active [UMLS license](https://uts.nlm.nih.
 
 You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 
-1) Use the example [sp_GetOntologyFromUMLS stored procedure](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) to populate a temporary table that looks like this:
+1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table that looks like this:
 
 | AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName                                                          |
 | --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ---------------------------------------------------------------------- |

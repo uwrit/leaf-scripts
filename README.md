@@ -2,7 +2,7 @@
 Creating Leaf Concepts manually can be done quickly using the Leaf Admin Panel, but certain types of Concepts are best created by SQL script. Here are a few examples of how to do so.
 
 ## ICD10 diagnoses using UMLS
-This example assumes that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database. Note that ICD10 diagnosese are used just as an example, and you can apply this pattern ICD9 and other coding systems just as easily.
+This example assumes that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database. Note that ICD10 diagnoses are used just as an example, and you can apply this pattern ICD9 and other coding systems just as easily.
 
 You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 

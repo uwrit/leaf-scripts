@@ -6,16 +6,7 @@ This example assumes that you have an active [UMLS license](https://uts.nlm.nih.
 
 You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 
-1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table that looks like this:
-
-| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName                                                          |
-| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ---------------------------------------------------------------------- |
-| A20098492 | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM TABULAR LIST of DISEASES and INJURIES (ICD10CM:A00.0-Z99.89) |
-| A17824693 | A17773405 | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella with other localized infection (ICD10CM:A02.29)             |
-| A17773458 | A17773456 | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Other specified sepsis (ICD10CM:A41.81-A41.89)                         |
-
-
-Each row contains a reference to its parent row via `ParentAUI`, and a SQL expression in `SqlSetWhere` which we can plug into our datamodel by prepending our column names.
+1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table:
 
 ```sql
 CREATE TABLE #Output
@@ -33,6 +24,17 @@ CREATE TABLE #Output
 INSERT INTO #Output
 EXEC dbo.sp_GetConceptOntologyFromUMLS 'ICD10CM'
 ```
+
+Output:
+
+| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName                                                          |
+| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ---------------------------------------------------------------------- |
+| A20098492 | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM TABULAR LIST of DISEASES and INJURIES (ICD10CM:A00.0-Z99.89) |
+| A17824693 | A17773405 | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella with other localized infection (ICD10CM:A02.29)             |
+| A17773458 | A17773456 | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Other specified sepsis (ICD10CM:A41.81-A41.89)                         |
+
+
+Each row contains a reference to its parent row via `ParentAUI`, and a SQL expression in `SqlSetWhere` which we can plug into our datamodel by prepending our column names.
 
 2) Find the diagnosis `SQL Set` ID and insert the hierarchical UMLS rows into the `app.Concept` table:
 

@@ -27,11 +27,11 @@ EXEC dbo.sp_GetConceptOntologyFromUMLS 'ICD10CM'
 
 Output:
 
-| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName                                                          |
-| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ---------------------------------------------------------------------- |
-| A20098492 | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM TABULAR LIST of DISEASES and INJURIES (ICD10CM:A00.0-Z99.89) |
-| A17824693 | A17773405 | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella with other localized infection (ICD10CM:A02.29)             |
-| A17773458 | A17773456 | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Other specified sepsis (ICD10CM:A41.81-A41.89)                         |
+| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName |
+| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ------------- |
+| A20...    | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM...  |
+| A18...    | A17...    | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella... |
+| A17...    | A174...   | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Sepsis...     |
 
 
 Each row contains a reference to its parent row via `ParentAUI`, and a SQL expression in `SqlSetWhere` which we can plug into our datamodel by prepending our column names.

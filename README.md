@@ -8,7 +8,7 @@ Alternatively, for convenience you can use the scripts in the [concepts/ontologi
 ## ICD10 diagnoses using UMLS
 You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 
-1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table:
+1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table (or create the table directly using the [ICD10CM.sql](https://github.com/uwrit/leaf-scripts/tree/master/concepts/ontologies/ICD10CM.sql) script:
 
 ```sql
 CREATE TABLE #Output

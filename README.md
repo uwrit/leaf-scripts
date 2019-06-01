@@ -1,9 +1,11 @@
-# leaf-scripts
+# Leaf Scripts
 Creating Leaf Concepts manually can be done quickly using the Leaf Admin Panel, but certain types of Concepts are best created by SQL script. Here are a few examples of how to do so.
 
-## ICD10 diagnoses using UMLS
-This example assumes that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database. Note that ICD10 diagnoses are used just as an example, and you can apply this pattern to ICD9, CPT, LOINC and other coding systems just as easily.
+These example assume that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database. Note that ICD10 diagnoses are used just as an example, and you can apply this pattern to ICD9, CPT, LOINC and other coding systems just as easily.
 
+Alternatively, for convenience you can use the scripts in the [concepts/ontologies](https://github.com/uwrit/leaf-scripts/tree/master/concepts/ontologies) folder to generate the ontologies directly and skip the process of creating temp tables.
+
+## ICD10 diagnoses using UMLS
 You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 
 1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table:

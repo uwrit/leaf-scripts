@@ -23,7 +23,7 @@ BEGIN
 		CodeCount INT NULL,
 		OntologyType NVARCHAR(20) NULL,
 		SqlSetWhere NVARCHAR(1000) NULL,
-		UiDisplayName NVARCHAR(400) NULL
+		UiDisplayName NVARCHAR(1000) NULL
 	)
 
 	INSERT INTO #Output

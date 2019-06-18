@@ -1,21 +1,14 @@
-# leaf-scripts
+# Leaf Scripts
 Creating Leaf Concepts manually can be done quickly using the Leaf Admin Panel, but certain types of Concepts are best created by SQL script. Here are a few examples of how to do so.
 
+These example assume that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database. Note that ICD10 diagnoses are used just as an example, and you can apply this pattern to ICD9, CPT, LOINC and other coding systems just as easily.
+
+Alternatively, for convenience you can use the scripts in the [concepts/ontologies](https://github.com/uwrit/leaf-scripts/tree/master/concepts/ontologies) folder to generate the ontologies directly and skip the process of creating temp tables.
+
 ## ICD10 diagnoses using UMLS
-This example assumes that you have an active [UMLS license](https://uts.nlm.nih.gov/license.html) and a database named `UMLS` on the same server as your Leaf application database.
+You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_InsertConceptsFromUMLS.sql.
 
-You can find the full example script used here wrapped as a stored procedure at https://github.com/uwrit/leaf-scripts/concepts/sp_InsertConceptsFromUMLS.sql.
-
-1) Use the example [sp_GetOntologyFromUMLS stored procedure](https://github.com/uwrit/leaf-scripts/concepts/sp_GetOntologyFromUMLS.sql) to populate a temporary table that looks like this:
-
-| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName                                                          |
-| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ---------------------------------------------------------------------- |
-| A20098492 | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM TABULAR LIST of DISEASES and INJURIES (ICD10CM:A00.0-Z99.89) |
-| A17824693 | A17773405 | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella with other localized infection (ICD10CM:A02.29)             |
-| A17773458 | A17773456 | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Other specified sepsis (ICD10CM:A41.81-A41.89)                         |
-
-
-Each row contains a reference to its parent row via `ParentAUI`, and a SQL expression in `SqlSetWhere` which we can plug into our datamodel by prepending our column names.
+1) Use the example [sp_GetOntologyFromUMLS](https://github.com/uwrit/leaf-scripts/blob/master/concepts/sp_GetOntologyFromUMLS.sql) stored procedure to populate a temporary table (or create the table directly using the [ICD10CM.sql](https://github.com/uwrit/leaf-scripts/tree/master/concepts/ontologies/ICD10CM.sql) script):
 
 ```sql
 CREATE TABLE #Output
@@ -27,14 +20,25 @@ CREATE TABLE #Output
 	CodeCount INT NULL,
 	OntologyType NVARCHAR(20) NULL,
 	SqlSetWhere NVARCHAR(1000) NULL,
-	UiDisplayName NVARCHAR(400) NULL
+	UiDisplayName NVARCHAR(1000) NULL
 )
 
 INSERT INTO #Output
 EXEC dbo.sp_GetConceptOntologyFromUMLS 'ICD10CM'
 ```
 
-2) Find our diagnosis `SQL Set` and insert the hierarchical UMLS rows into the `app.Concept` table:
+Output:
+
+| AUI       | ParentAUI | MinCode | MaxCode | CodeCount | OntologyType | SqlSetWhere                  | UiDisplayName |
+| --------- | --------- | ------- | ------- | --------- | ------------ | ---------------------------- | ------------- |
+| A20...    | NULL      | A00.0   | Z99.89  | 69823     | ICD10CM      | BETWEEN 'A00.0' AND 'Z99.89' | ICD-10-CM...  |
+| A18...    | A17...    | A02.29  | A02.29  | 1         | ICD10CM      | = 'A02.29'                   | Salmonella... |
+| A17...    | A174...   | A41.81  | A41.89  | 2         | ICD10CM      | IN ('A41.81','A41.89')       | Sepsis...     |
+
+
+Each row contains a reference to its parent row via `ParentAUI`, and a SQL expression in `SqlSetWhere` which we can plug into our datamodel by prepending our column names.
+
+2) Find the diagnosis `SQL Set` ID and insert the hierarchical UMLS rows into the `app.Concept` table:
 
 ```sql
 DECLARE @SqlSetId INT = (SELECT TOP (1) S.Id FROM app.ConceptSqlSet S WHERE S.SqlSetFrom = 'dbo.diagnosis')
@@ -56,23 +60,23 @@ INSERT INTO app.Concept
   ,[ContentLastUpdateDateTime]
 )
 SELECT 
-	[ExternalId]				   = 'UMLS_AUI:' + O.AUI
-   ,[ExternalParentId]			   = 'UMLS_AUI:' + O.ParentAUI
+    [ExternalId]		   = 'UMLS_AUI:' + O.AUI
+   ,[ExternalParentId]		   = 'UMLS_AUI:' + O.ParentAUI
    ,[IsPatientCountAutoCalculated] = 1
-   ,[IsNumeric]					   = 0		
-   ,[IsParent]					   = CASE WHEN EXISTS (SELECT 1 FROM #Output O2 WHERE O.AUI = O2.ParentAUI) THEN 1 ELSE 0 END
-   ,[IsRoot]					   = CASE WHEN ParentAUI IS NULL THEN 1 ELSE 0 END
-   ,[IsSpecializable]			   = 0
-   ,[SqlSetId]					   = @SqlSetId
-   ,[SqlSetWhere]				   = '@.CodingSystem = ''ICD10'' AND @.Code ' + O.SqlSetWhere
-   ,[UiDisplayName]				   = O.uiDisplayName
-   ,[UiDisplayText]				   = 'Had diagnosis of ' + O.UiDisplayName
-   ,[AddDateTime]				   = GETDATE()
+   ,[IsNumeric]			   = 0		
+   ,[IsParent]		           = CASE WHEN EXISTS (SELECT 1 FROM #Output O2 WHERE O.AUI = O2.ParentAUI) THEN 1 ELSE 0 END
+   ,[IsRoot]			   = CASE WHEN ParentAUI IS NULL THEN 1 ELSE 0 END
+   ,[IsSpecializable]		   = 0
+   ,[SqlSetId]			   = @SqlSetId
+   ,[SqlSetWhere]		   = '@.CodingSystem = ''ICD10'' AND @.Code ' + O.SqlSetWhere
+   ,[UiDisplayName]	           = O.uiDisplayName
+   ,[UiDisplayText]		   = 'Had diagnosis of ' + O.UiDisplayName
+   ,[AddDateTime]		   = GETDATE()
    ,[ContentLastUpdateDateTime]    = GETDATE()
 FROM #Output O
 WHERE NOT EXISTS (SELECT 1
-				  FROM app.Concept c
-				  WHERE 'UMLS_AUI:' + o.AUI = c.ExternalID)
+		  FROM app.Concept c
+		  WHERE 'UMLS_AUI:' + o.AUI = c.ExternalID)
 ```
 
 Note that above in 

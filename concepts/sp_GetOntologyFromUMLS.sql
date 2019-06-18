@@ -13,7 +13,7 @@ GO
 --                1) You have a valid UMLS license.
 --                2) There is a UMLS database named [UMLS].
 -- =============================================
-ALTER PROCEDURE [RIT].[sp_Leaf_GetConceptOntologyFromUMLS]
+CREATE PROCEDURE [dbo].[sp_GetConceptOntologyFromUMLS]
 	@OntologyType NVARCHAR (20)
 
 AS

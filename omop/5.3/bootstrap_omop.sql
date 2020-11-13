@@ -22,8 +22,7 @@ DECLARE @no  BIT = 0
 DECLARE @user NVARCHAR(20) = 'bootstrap_omop.sql'
 
 /**
- * Create metadata temp table of all OMOP 
- * SQL Sets to be queried in Leaf.
+ * Add OMOP SQL Sets to be queried in Leaf.
  */
 INSERT INTO LeafDB.app.ConceptSqlSet (SqlSetFrom, IsEncounterBased, IsEventBased, SqlFieldDate, Created, CreatedBy, Updated, UpdatedBy)
 SELECT *
@@ -317,7 +316,120 @@ END
  */
 IF @add_labs = 1
 BEGIN
-    SELECT 1
+
+    BEGIN TRY DROP TABLE #L END TRY BEGIN CATCH END CATCH
+
+	DECLARE @loinc_root INT = 36206173
+
+	; WITH roots AS
+	(
+		SELECT root_concept_id = C.concept_id
+			 , root_concept_name = C.concept_name
+			 , is_root = 1
+			 , parent_concept_id = @loinc_root
+			 , C.concept_id
+			 , C.concept_name
+			 , C.concept_code
+			 , C.vocabulary_id
+			 , C.concept_class_id
+		FROM dbo.concept AS C
+		WHERE vocabulary_id = 'LOINC'
+			  AND concept_class_id = 'LOINC Hierarchy'
+			  AND EXISTS (SELECT 1 FROM dbo.concept_relationship AS CR 
+						  WHERE C.concept_id = CR.concept_id_1 
+							    AND CR.concept_id_2 = @loinc_root 
+								AND CR.relationship_id = 'Is a')
+
+		UNION ALL
+
+		SELECT P.root_concept_id
+			 , P.root_concept_name
+			 , is_root = 0
+			 , P.concept_id
+			 , C.concept_id
+			 , C.concept_name
+			 , C.concept_code
+			 , C.vocabulary_id
+			 , C.concept_class_id
+		FROM roots AS P
+			 INNER JOIN dbo.concept_relationship AS CR
+				ON P.concept_id = CR.concept_id_2 AND CR.relationship_id = 'Is A'
+			 INNER JOIN dbo.concept AS C
+				ON CR.concept_id_1 = C.concept_id
+		WHERE C.vocabulary_id = 'LOINC'
+	)
+	
+	SELECT *
+		 , concept_id_string = CONVERT(NVARCHAR(20), concept_id)
+		 , is_component = 0
+		 , is_parent	= 0
+		 , is_numeric   = 0
+	INTO #L 
+	FROM roots
+
+	UPDATE #L
+	SET is_parent    = 1
+	FROM #L AS C
+	WHERE EXISTS (SELECT 1
+				  FROM dbo.concept_ancestor AS CS
+					     INNER JOIN dbo.measurement AS M
+					  		ON CS.descendant_concept_id = M.measurement_concept_id
+				  WHERE C.concept_id = CS.ancestor_concept_id)
+
+	UPDATE #L
+	SET is_component = 1
+	  , is_parent    = 0
+	WHERE EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE concept_id = M.measurement_concept_id)
+
+	UPDATE #L
+	SET is_numeric = 1
+	WHERE is_component = 1
+		  AND EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE concept_id = M.measurement_concept_id AND M.value_as_number IS NOT NULL)
+
+	DELETE #L
+	WHERE is_parent = 0
+		  AND is_component = 0
+
+	DECLARE @labs_root NVARCHAR(50) = 'labs'
+
+	/* INSERT */
+    INSERT INTO uwDM_Leaf.app.Concept (ExternalId, ExternalParentId, [IsNumeric], IsParent, IsRoot, SqlSetId, SqlSetWhere, 
+                                       SqlFieldNumeric, UiDisplayName, UiDisplayText, UiDisplayUnits, UiNumericDefaultText)
+    
+    /* Root */
+    SELECT ExternalId           = @labs_root
+         , ExternalParentId     = NULL
+         , [IsNumeric]          = @no
+         , IsParent             = @yes
+         , IsRoot               = @yes
+         , SqlSetId             = @sqlset_measurement
+         , SqlSetWhere          = NULL
+         , SqlFieldNumeric      = NULL
+         , UiDisplayName        = 'Labs'
+         , UiDisplayText        = 'Had a laboratory test ordered'
+         , UiDisplayUnits       = NULL
+         , UiNumericDefaultText = NULL
+
+	/* Hierarchy and components */
+	SELECT ExternalId           = @labs_root + ':' + X.concept_id_string
+         , ExternalParentId     = @labs_root + ':' + CONVERT(NVARCHAR(20),X.parent_concept_id)
+         , [IsNumeric]          = X.is_numeric
+         , IsParent             = is_parent
+         , IsRoot               = @no
+         , SqlSetId             = @sqlset_measurement
+         , SqlSetWhere          = CASE is_parent WHEN 1 THEN 'EXISTS (SELECT 1 ' +
+																	 'FROM dbo.concept_ancestor AS @CS ' +
+																	 'WHERE @.measurement_concept_id = @CS.descendant_concept_id ' +
+																		  ' @.ancestor_concept_id = ' + X.concept_id_string
+												 WHEN 0 THEN '@.measurement_concept_id = ' + X.concept_id_string
+								  END
+         , SqlFieldNumeric      = CASE WHEN X.is_numeric = 1 THEN '@.value_as_number' END
+         , UiDisplayName        = X.concept_name
+         , UiDisplayText        = 'Had a laboratory test for ' + X.concept_name + ' ordered'
+         , UiDisplayUnits       = NULL
+         , UiNumericDefaultText = CASE WHEN X.is_numeric = 1 THEN 'of any result' END
+	FROM #L AS X
+    
 END
 
 /**

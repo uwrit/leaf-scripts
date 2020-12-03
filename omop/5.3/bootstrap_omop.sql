@@ -410,6 +410,8 @@ BEGIN
          , UiDisplayUnits       = NULL
          , UiNumericDefaultText = NULL
 
+    UNION ALL
+
 	/* Hierarchy and components */
 	SELECT ExternalId           = @labs_root + ':' + X.concept_id_string
          , ExternalParentId     = @labs_root + ':' + CONVERT(NVARCHAR(20),X.parent_concept_id)
@@ -429,7 +431,7 @@ BEGIN
          , UiDisplayUnits       = NULL
          , UiNumericDefaultText = CASE WHEN X.is_numeric = 1 THEN 'of any result' END
 	FROM #L AS X
-    
+
 END
 
 /**

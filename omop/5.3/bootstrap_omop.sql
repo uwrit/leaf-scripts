@@ -393,7 +393,7 @@ BEGIN
 	DECLARE @labs_root NVARCHAR(50) = 'labs'
 
 	/* INSERT */
-    INSERT INTO uwDM_Leaf.app.Concept (ExternalId, ExternalParentId, [IsNumeric], IsParent, IsRoot, SqlSetId, SqlSetWhere, 
+    INSERT INTO LeafDB.app.Concept (ExternalId, ExternalParentId, [IsNumeric], IsParent, IsRoot, SqlSetId, SqlSetWhere, 
                                        SqlFieldNumeric, UiDisplayName, UiDisplayText, UiDisplayUnits, UiNumericDefaultText)
     
     /* Root */

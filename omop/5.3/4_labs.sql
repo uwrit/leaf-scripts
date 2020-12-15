@@ -369,8 +369,7 @@ BEGIN
 	WHERE C.CodePath LIKE 'Lab\COAG%'
 
 	/**
-	 * Prune any branches that have no actual tests under them, also
-	 * recalculate [INSTANCE_NUM] to be across all surviving lab domains.
+	 * Prune any branches that have no actual tests under them
 	 */
 	BEGIN TRY DROP TABLE #E END TRY BEGIN CATCH END CATCH
 	SELECT
@@ -453,7 +452,7 @@ BEGIN
 	GROUP BY F.CodePath, F.concept_code, F.UiDisplayName, M.measurement_concept_id, M.value_as_concept_id, C.concept_name
 
 	/**
-	 * Final INSERT.
+	 * Final INSERT
 	 */
 	BEGIN TRY DROP TABLE #F END TRY BEGIN CATCH END CATCH
 	; WITH F AS
@@ -468,7 +467,7 @@ BEGIN
 		   , concept_code
 		   , instance_count
 		FROM #E AS E
-		WHERE E.AUI != 'A28298479' -- Exclude "LABS" root
+		WHERE E.AUI != 'A28298479' /* Exclude "LABS" root */
 	)
 	SELECT *
 	INTO #F
@@ -570,7 +569,7 @@ BEGIN
 	 * Create leaf_loinc_ontology table
 	 */
 	SELECT
-		CodePath
+		CodePath = CONVERT(VARCHAR(900), CodePath)
 	  , ParentCodePath
 	  , AUI
 	  , ParentAUI

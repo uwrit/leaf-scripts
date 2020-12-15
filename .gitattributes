@@ -1,2 +1,1 @@
-ontologies/* filter=lfs diff=lfs merge=lfs -text
-concepts/ontologies/* filter=lfs diff=lfs merge=lfs -text
+GEMs/LeafDB.GEMs.sql filter=lfs diff=lfs merge=lfs -text

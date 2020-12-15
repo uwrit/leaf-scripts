@@ -1,10 +1,10 @@
 /**
  * Labs
- * Notes: - Creates a heavily-modified, data-specific LOINC lab tree 
- *        - Assumes that the leaf-scripts LOINC table (https://github.com/uwrit/leaf-scripts/blob/master/concepts/ontologies/LOINC.sql)
- *	        is included as 'dbo.LOINC' (and can be safely dropped after script has completed)
- *        - Creates a persistentm, small table called dbo.leaf_loinc_ontology within the OMOP database
- *          which the Leaf uses to query, i2b2-style
+ * Notes: - Creates a heavily-modified, data-specific LOINC lab tree.
+ *        - Assumes that the leaf-scripts LOINC table (https://github.com/uwrit/leaf-scripts/releases/tag/umls2020AB, download LOINC.sql.zip)
+ *	        is included as 'dbo.LOINC' (and can be safely dropped after script has completed).
+ *        - Creates a small persistent table called dbo.leaf_loinc_ontology within the OMOP database
+ *          which Leaf uses to query with i2b2-style EXISTS SQL statements.
  */
 BEGIN
 
@@ -432,6 +432,26 @@ BEGIN
 	FROM #E AS E
 	WHERE EXISTS (SELECT 1 FROM #dupes AS D WHERE E.AUI = D.OldParentAUI)
 
+    /**
+	 * Load value_as_concepts
+	 */
+	BEGIN TRY DROP TABLE #posneg END TRY BEGIN CATCH END CATCH
+	SELECT 
+	    F.CodePath
+	  , F.concept_code
+	  , F.UiDisplayName
+	  , M.measurement_concept_id
+	  , M.value_as_concept_id
+	  , C.concept_name
+	  , instance_count = COUNT(DISTINCT M.person_id)
+	INTO #posneg
+	FROM #F AS F
+		 INNER JOIN dbo.measurement AS M
+			ON F.concept_id = M.measurement_concept_id
+		 INNER JOIN dbo.concept AS C
+			ON M.value_as_concept_id = C.concept_id
+	GROUP BY F.CodePath, F.concept_code, F.UiDisplayName, M.measurement_concept_id, M.value_as_concept_id, C.concept_name
+
 	/**
 	 * Final INSERT.
 	 */
@@ -485,7 +505,10 @@ BEGIN
 	  , ExternalParentId			 = @lab_root + ':' + F.ParentCodePath
 	  , IsPatientCountAutoCalculated = @yes
 	  , IsNumeric					 = @no
-	  , IsParent					 = CASE WHEN F.ParentCodePath IS NULL THEN @yes ELSE @no END
+	  , IsParent					 = CASE WHEN F.ParentCodePath IS NULL THEN @yes
+									        WHEN EXISTS (SELECT 1 FROM #posneg AS PS WHERE F.CodePath = PS.CodePath) THEN @yes 
+											ELSE @no 
+									   END
 	  , IsRoot					     = @no
 	  , IsSpecializable			     = @no
 	  , SqlSetId					 = @sqlset_measurement
@@ -505,6 +528,26 @@ BEGIN
 	  , AddDateTime				     = GETDATE()
 	  , ContentLastUpdateDateTime	 = GETDATE()
 	FROM #F AS F
+    UNION ALL
+
+	/* Lab results (pos, neg, etc.) */ 
+	SELECT
+		ExternalId					 = @lab_root + ':' + F.CodePath + ':' + F.concept_name
+	  , ExternalParentId			 = @lab_root + ':' + F.CodePath
+	  , IsPatientCountAutoCalculated = @yes
+	  , IsNumeric					 = @no
+	  , IsParent					 = @no
+	  , IsRoot					     = @no
+	  , IsSpecializable			     = @no
+	  , SqlSetId					 = @sqlset_measurement
+	  , SqlSetWhere					 = '/* LOINC:' + F.concept_code  +' */ @.measurement_concept_id = ' + CONVERT(NVARCHAR(20),F.measurement_concept_id) + ' AND @.value_as_concept_id = ' + CONVERT(NVARCHAR(20),F.value_as_concept_id)
+	  , UiDisplayName				 = F.concept_name
+	  , UiDisplayText				 = 'Had a laboratory test for ' + F.UiDisplayName + ' performed that was ' + F.concept_name
+	  , UiDisplayTooltip			 = NULL
+	  , UiDisplayPatientCount        = F.instance_count
+	  , AddDateTime				     = GETDATE()
+	  , ContentLastUpdateDateTime	 = GETDATE()
+	FROM #posneg AS F
 
 	/*
 	 * Set numeric concepts

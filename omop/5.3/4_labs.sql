@@ -1,593 +1,464 @@
 /**
  * Labs
- * Notes: - Creates a heavily-modified, data-specific LOINC lab tree.
- *        - Assumes that the leaf-scripts LOINC table (https://github.com/uwrit/leaf-scripts/releases/tag/umls2020AB, download LOINC.sql.zip)
- *	        is included as 'dbo.LOINC' (and can be safely dropped after script has completed).
- *        - Creates a small persistent table called dbo.leaf_loinc_ontology within the OMOP database
- *          which Leaf uses to query with i2b2-style EXISTS SQL statements.
+ * Notes - This script creates Leaf concepts representing laboratory
+ *         tests based on a modified LOINC hierarchy. It does so by 
+ *         'pruning' the LOINC tree to show only tests present in the
+ *         dbo.measurement table and simplifies their display names and
+ *         so on along the way.
+ *
+ *         Importantly, the script build Leaf concepts' SQL by leveraging 
+ *         the OMOP dbo.concept_ancestor table. As this table contains *many* 
+ *         but not *all* necessary ancestor-descendent relationships needed, 
+ *         the script begins by recursively back-filling any missing relationships 
+ *         present in the dbo.concept_relationship (of 'Is a' type) and inserting 
+ *         them in the dbo.concept_ancestor table.  
+ *         
+ *         Because of this (and other processes downstream, including patient count 
+ *         calculation) the script may take time to run, depending on the specifics 
+ *         of database size, hardware, etc. Where possible, the script  
+ *         manages it's own temporary indices and cleans up after itself.
  */
 BEGIN
 
-    DECLARE @yes BIT = 1
-    DECLARE @no  BIT = 0
+    /**
+     * Use a top-down recursive CTE, to LOINC parents to children
+     */
+    ; WITH X AS
+    (
+        SELECT
+              parent_concept_id   = CONVERT(INT, NULL)
+            , parent_concept_name = CONVERT(VARCHAR(255), NULL)
+            , depth               = 1
+            , concept_id
+            , concept_code
+            , concept_name
+        FROM dbo.concept AS C
+        WHERE C.vocabulary_id = 'LOINC'
+              AND C.concept_id = 36206173 /* Root = 'Laboratory' */
+        UNION ALL
+        SELECT
+              parent_concept_id   = X.concept_id
+            , parent_concept_name = X.concept_name
+            , depth               = X.depth + 1
+            , C.concept_id
+            , C.concept_code
+            , C.concept_name
+        FROM X INNER JOIN dbo.concept_relationship AS CR
+                ON X.concept_id = CR.concept_id_2
+            INNER JOIN dbo.concept AS C
+                ON CR.concept_id_1 = C.concept_id
+        WHERE C.vocabulary_id = 'LOINC'
+            AND CR.relationship_id = 'Is a'
+            AND C.concept_id != X.concept_id
+    )
+    SELECT parent_concept_id, parent_concept_name, depth = MIN(depth), concept_id, concept_code, concept_name
+    INTO #L
+    FROM X
+    GROUP BY parent_concept_id, parent_concept_name, concept_id, concept_code, concept_name
 
-	DECLARE @sqlset_person               INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.person')
-    DECLARE @sqlset_visit_occurrence     INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.visit_occurrence')  
-    DECLARE @sqlset_condition_occurrence INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.condition_occurrence')  
-    DECLARE @sqlset_v_death              INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.v_death')  
-    DECLARE @sqlset_device_exposure      INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.device_exposure')  
-    DECLARE @sqlset_drug_exposure        INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.drug_exposure')  
-    DECLARE @sqlset_measurement          INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.measurement')  
-    DECLARE @sqlset_observation          INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.observation')  
-    DECLARE @sqlset_procedure_occurrence INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.procedure_occurrence')  
-
-	DECLARE @lab_root NVARCHAR(50) = 'lab'
-
-	BEGIN TRY DROP TABLE #A END TRY BEGIN CATCH END CATCH
-	SELECT * 
-	INTO #A
-	FROM dbo.LOINC
-
-	CREATE NONCLUSTERED INDEX idx_temp ON #A ([ParentAUI],[AUI])
-
-	/**
-	 * Clean up names
-	 */
-	UPDATE #A
-	SET UiDisplayName =  LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LEFT(UiDisplayName, CHARINDEX('(LNC', UiDisplayName) - 1),'&#x7C',''),'bld-ser-plas',''),';',''),')',''),'(','')))
-
-	/**
-	 * Take parent name out of child name
-	 */
-	UPDATE #A
-	SET UiDisplayName = LTRIM(RTRIM(REPLACE(REPLACE(A.UiDisplayName, B.UiDisplayName,''),'.','')))
-	FROM #A AS A
-		 INNER JOIN (SELECT AUI, ParentAUI, UiDisplayName FROM #A) AS B
-			ON A.ParentAUI = B.AUI
-
-	/**
-	 * Make sure name is capitalized
-	 */
-	UPDATE #A
-	SET UiDisplayName = UPPER(LEFT(UiDisplayName,1)) + SUBSTRING(UiDisplayName,2, LEN(UiDisplayName))
-
-	/**
-	 * Remove extra spaces
-	 */
-	UPDATE #A
-	SET UiDisplayName = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(UiDisplayName,'  ',' '),'+',' + '),'XXX','')))
-
-	/**
-	 * Remove meaningless starting and ending slashes
-	 */
-	UPDATE #A
-	SET UiDisplayName = LTRIM(RTRIM(REPLACE(UiDisplayName,'/','')))
-	WHERE UiDisplayName LIKE '/%'
-		  OR UiDisplayName LIKE '%/'
-
-	/**
-	 * Find children with same name as parents
-	 */
-	BEGIN TRY DROP TABLE #redundant END TRY BEGIN CATCH END CATCH
-	SELECT A.AUI
-	INTO #redundant
-	FROM #A AS A
-		 INNER JOIN #A AS B
-			ON A.ParentAUI = B.AUI
-	WHERE A.UiDisplayName = B.UiDisplayName
-
-	/**
-	 * Remove and re-parent any labeled (why?) as 'XXX' or blank string
-	 */
-	INSERT INTO #redundant (AUI)
-	SELECT A.AUI
-	FROM #A AS A
-	WHERE A.UiDisplayName = '' OR A.UiDisplayName LIKE '%XXX'
-
-	/**
-	 * Set grandparents to parents for redudantly named
-	 */
-	UPDATE #A
-	SET ParentAUI = B.ParentAUI
-	FROM #A AS A
-		 INNER JOIN (SELECT AUI, ParentAUI FROM #A) AS B
-			ON A.ParentAUI = B.AUI
-	WHERE EXISTS (SELECT 1 FROM #redundant AS R WHERE A.ParentAUI = R.AUI)
-
-	/**
-	 * DELETE redundants
-	 */
-	DELETE #A
-	FROM #A AS A
-	WHERE EXISTS (SELECT 1 FROM #redundant AS R WHERE A.AUI = R.AUI)
-
-	/**
-	 * Create recursive tree to gather the concepts and test under the LABS LOINC concept.
-	 * The [CodePath] column functions similarly to the [CONCEPT_PATH] column in i2b2.
-	 */
-	BEGIN TRY DROP TABLE #B END TRY BEGIN CATCH END CATCH
-	; WITH A AS
-	(
-		SELECT 
-			AUI
-		  , ParentAUI
-		  , MinCode
-		  , MaxCode
-		  , CodeCount
-		  , UiDisplayName
-		  , IsParent = CASE WHEN EXISTS (SELECT 1 FROM #A AS B WHERE B.ParentAUI = A.AUI) THEN 1 ELSE 0 END
-		FROM #A AS A
-		WHERE AUI != 'A28297684' /* Exclude 'NOTYETCATEG' */
-	)
-	, B AS
-	(
-		SELECT 
-			AUI
-		  , ParentAUI
-		  , UiDisplayName
-		  , MinCode
-		  , MaxCode
-		  , CodeCount
-		  , IsParent
-		  , CodePath = CONVERT(NVARCHAR(400),UiDisplayName)
-		FROM A
-		WHERE AUI = 'A28298479' /* Top parent */
-		UNION ALL
-		SELECT 
-			A.AUI
-		  , A.ParentAUI
-		  , A.UiDisplayName
-		  , A.MinCode
-		  , A.MaxCode
-		  , A.CodeCount
-		  , A.IsParent
-		  , CodePath = CONVERT(NVARCHAR(400), CASE A.IsParent WHEN 0 THEN B.CodePath ELSE B.CodePath + '\' + A.UiDisplayName END)
-		FROM B INNER JOIN A
-				ON A.ParentAUI = B.AUI
-	)
-
-	SELECT *
-	INTO #B
-	FROM B
-
-	BEGIN TRY DROP TABLE #C END TRY BEGIN CATCH END CATCH
-	SELECT DISTINCT
-		B.AUI
-	  , B.ParentAUI
-	  , UiDisplayName = CASE B.IsParent WHEN 1 THEN B.UiDisplayName ELSE C.concept_name END
-	  , B.IsParent
-	  , CodePath      = CONVERT(VARCHAR(900), CASE B.IsParent WHEN 1 THEN B.CodePath ELSE B.CodePath + '\' + C.concept_code END)
-	  , C.concept_id
-	  , C.concept_code
-	  , instance_count = (SELECT COUNT(DISTINCT person_id) FROM dbo.measurement AS M WHERE C.concept_id = M.measurement_concept_id)
-	INTO #C
-	FROM #B AS B
-		 LEFT JOIN dbo.concept AS C
-			ON B.IsParent = 0
-			   AND B.MinCode = C.concept_code
-
-	CREATE NONCLUSTERED INDEX IDX_CodePath ON #C (CodePath)
-
-	/**
-	 * DELETE labs with no measurement data
-	 */
-	DELETE FROM #C
-	WHERE IsParent = 0
-		  AND instance_count = 0
-
-	/**
-	 * Urinalysis
-	 */
-	BEGIN TRY DROP TABLE #D END TRY BEGIN CATCH END CATCH
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\UA' THEN 'Urinalysis' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	INTO #D
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\UA%'
-	      
-	/**
-	 * Chemistry
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\Chemistry and Chemistry challenge\CHEM' THEN 'Chemistry' ELSE C.UiDisplayName END
-		, CodePath = REPLACE(C.CodePath,'\Chemistry and Chemistry challenge','')
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\Chemistry and Chemistry challenge\CHEM%'
-
-	/**
-	 * Hematology
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\HEM/BC' THEN 'Hematology' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\HEM/BC%'
-
-	/**
-	 * Antimicrobial Susceptibility
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\Microbiology and Antimicrobial susceptibility\ABXBACT' THEN 'Antimicrobial Susceptibility' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\Microbiology and Antimicrobial susceptibility\ABXBACT%'
-
-	/**
-	 * Molecular Pathology
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\MOLPATH' THEN 'Molecular Pathology' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\MOLPATH%'
-
-	/**
-	 * Serology
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\SERO' THEN 'Serology' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\SERO%'
-
-	/**
-	 * Microbiology
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\Microbiology and Antimicrobial susceptibility\MICRO' THEN 'Microbiology' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\Microbiology and Antimicrobial susceptibility\MICRO%'
-
-	/**
-	 * Coagulation
-	 */
-	INSERT INTO #D (AUI, ParentAUI, UiDisplayName, CodePath, concept_id, concept_code, row_num, instance_count)
-	SELECT
-		  C.AUI
-		, C.ParentAUI
-		, UiDisplayName = CASE C.CodePath WHEN 'Lab\COAG' THEN 'Coagulation' ELSE C.UiDisplayName END
-		, C.CodePath
-		, C.concept_id
-		, C.concept_code
-		, row_num = 
-				CASE C.IsParent 
-					 WHEN 1 THEN 1 
-					 ELSE DENSE_RANK() OVER (PARTITION BY concept_code ORDER BY LEN(CodePath), CodePath) 
-				END
-		, instance_count =
-			   CASE C.IsParent
-					WHEN 1 THEN (SELECT SUM(ISNULL(C2.instance_count,0)) FROM #C AS C2 WHERE C2.IsParent = 0 AND C2.CodePath LIKE C.CodePath + '%')
-					ELSE C.instance_count
-			   END
-	FROM #C AS C
-	WHERE C.CodePath LIKE 'Lab\COAG%'
-
-	/**
-	 * Prune any branches that have no actual tests under them
-	 */
-	BEGIN TRY DROP TABLE #E END TRY BEGIN CATCH END CATCH
-	SELECT
-		 AUI
-	   , ParentAUI
-	   , UiDisplayName
-	   , CodePath
-	   , concept_id
-	   , concept_code
-	   , row_num
-	   , instance_count
-	INTO #E
-	FROM #D AS D
-	WHERE D.ROW_NUM = 1
-		  AND ISNULL(D.INSTANCE_COUNT,0) > 0
-
-	/**
-	 * Remove any duplicate rows and reparent
-	 */
-	BEGIN TRY DROP TABLE #dupes END TRY BEGIN CATCH END CATCH
-	; WITH E AS
-	(
-		SELECT 
-			 AUI
-		   , ParentAUI
-		   , UiDisplayName
-		   , CodePath
-		   , concept_id
-		   , concept_code
-		   , row_num = DENSE_RANK() OVER (PARTITION BY CodePath ORDER BY AUI) 
-		FROM #E
-		WHERE INSTANCE_COUNT > 0
-	)
-
-	/**
-	 * CodePath duplicates
-	 */
-	SELECT 
-		OldParentAUI     = E2.AUI
-	  , NewParentAUI     = E1.AUI
-	  , E1.UiDisplayName
-	  , E1.CodePath
-	  , OldUiDisplayName = E2.UiDisplayName
-	  , OldCodePath		 = E2.CodePath
-	INTO #dupes
-	FROM E AS E2
-		 INNER JOIN E AS E1
-			ON E1.CodePath = E2.CodePath
-	WHERE E2.ROW_NUM > 1 
-		  AND E1.ROW_NUM = 1
-
-	UPDATE #E
-	SET ParentAUI = D.NewParentAUI
-	FROM #E AS E
-		 INNER JOIN #dupes AS D
-			ON E.ParentAUI = D.OldParentAUI
-
-	DELETE #E
-	FROM #E AS E
-	WHERE EXISTS (SELECT 1 FROM #dupes AS D WHERE E.AUI = D.OldParentAUI)
+    CREATE NONCLUSTERED INDEX IDX_TEMP ON #L ([parent_concept_id],[depth])
 
     /**
-	 * Load value_as_concepts
-	 */
-	BEGIN TRY DROP TABLE #posneg END TRY BEGIN CATCH END CATCH
-	SELECT 
-	    F.CodePath
-	  , F.concept_code
-	  , F.UiDisplayName
-	  , M.measurement_concept_id
-	  , M.value_as_concept_id
-	  , C.concept_name
-	  , instance_count = COUNT(DISTINCT M.person_id)
-	INTO #posneg
-	FROM #F AS F
-		 INNER JOIN dbo.measurement AS M
-			ON F.concept_id = M.measurement_concept_id
-		 INNER JOIN dbo.concept AS C
-			ON M.value_as_concept_id = C.concept_id
-	GROUP BY F.CodePath, F.concept_code, F.UiDisplayName, M.measurement_concept_id, M.value_as_concept_id, C.concept_name
+     * Find all unique parent LOINC concept_ids
+     */
+    ; WITH P AS
+    (
+        SELECT DISTINCT parent_concept_id
+        FROM #L
+    )
+    SELECT parent_concept_id, row_id = ROW_NUMBER() OVER (ORDER BY (SELECT 1))
+    INTO #P
+    FROM P
 
-	/**
-	 * Final INSERT
-	 */
-	BEGIN TRY DROP TABLE #F END TRY BEGIN CATCH END CATCH
-	; WITH F AS
-	(
-		SELECT 
-			 AUI
-		   , ParentAUI
-		   , UiDisplayName
-		   , CodePath
-		   , ParentCodePath = (SELECT TOP 1 P.CodePath FROM #E AS P WHERE P.concept_code IS NULL AND E.CodePath LIKE P.CodePath + '%' AND E.CodePath != P.CodePath ORDER BY CodePath DESC)
-		   , concept_id
-		   , concept_code
-		   , instance_count
-		FROM #E AS E
-		WHERE E.AUI != 'A28298479' /* Exclude "LABS" root */
-	)
-	SELECT *
-	INTO #F
-	FROM F
-	WHERE instance_count > 0
+    /**
+     * Loop through each parent, find descendants, and back-fill 
+     * any missing relationships in dbo.concept_ancestor
+     */
+    DECLARE @row_id INT     = 1
+    DECLARE @max_row_id INT = (SELECT MAX(row_id) FROM #P)
+    DECLARE @concept_id INT = (SELECT TOP 1 parent_concept_id FROM #P WHERE row_id = @row_id)
 
-    /* INSERT */
-	INSERT INTO LeafDB.app.Concept (ExternalId, ExternalParentId, IsPatientCountAutoCalculated, IsNumeric, IsParent, IsRoot, IsSpecializable,
-	                                SqlSetId, SqlSetWhere, UiDisplayName, UiDisplayText, UiDisplayTooltip, UiDisplayPatientCount,
-	                                AddDateTime, ContentLastUpdateDateTime)
+    WHILE @row_id <= @max_row_id
+    BEGIN
+        SET @concept_id = (SELECT TOP 1 parent_concept_id FROM #P WHERE row_id = @row_id)
+        
+        /**
+         * Recurse to find all descendant concepts
+         */
+        ; WITH X AS
+        (
+                SELECT
+                        root_concept_id     = L.parent_concept_id
+                        , root_concept_name   = L.parent_concept_name
+                        , root_depth          = L.depth - 1
+                        , parent_concept_id
+                        , parent_concept_name
+                        , depth            
+                        , concept_id
+                        , concept_code
+                        , concept_name
+                FROM #L AS L
+                WHERE L.parent_concept_id = @concept_id
+                UNION ALL
+                SELECT
+                        X.root_concept_id
+                        , X.root_concept_name
+                        , X.root_depth
+                        , parent_concept_id   = X.concept_id
+                        , parent_concept_name = X.concept_name
+                        , depth               = X.depth + 1                  
+                        , L.concept_id
+                        , L.concept_code
+                        , L.concept_name
+                FROM X INNER JOIN #L AS L
+                        ON X.concept_id = L.parent_concept_id
+        )
+        , X2 AS
+        (
+                SELECT root_concept_id, concept_id, min_levels_of_separation = MIN(depth - root_depth), max_levels_of_separation = MAX(depth - root_depth)
+                FROM X
+                GROUP BY root_concept_id, concept_id
+        )
+        /**
+         * Insert descendants into concept_ancestor table
+         */
+        INSERT INTO dbo.concept_ancestor (ancestor_concept_id, descendant_concept_id, min_levels_of_separation, max_levels_of_separation)
+        SELECT root_concept_id, concept_id, min_levels_of_separation, max_levels_of_separation
+        FROM X2
+        WHERE NOT EXISTS (SELECT 1 FROM dbo.concept_ancestor AS L
+                            WHERE L.ancestor_concept_id = root_concept_id
+                                AND L.descendant_concept_id = concept_id)
 
-    /* Root */
+        SET @row_id += 1
+    END
+    
+    
+    /**
+     * Initialize Leaf-related params
+     */
+    DECLARE @yes BIT = 1
+    DECLARE @no  BIT = 0
+    
+    DECLARE @sqlset_person               INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.person')
+    DECLARE @sqlset_visit_occurrence     INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.visit_occurrence') 
+    DECLARE @sqlset_condition_occurrence INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.condition_occurrence') 
+    DECLARE @sqlset_v_death              INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.v_death') 
+    DECLARE @sqlset_device_exposure      INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.device_exposure') 
+    DECLARE @sqlset_drug_exposure        INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.drug_exposure') 
+    DECLARE @sqlset_measurement          INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.measurement') 
+    DECLARE @sqlset_observation          INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.observation') 
+    DECLARE @sqlset_procedure_occurrence INT = (SELECT TOP 1 Id FROM LeafDB.app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.procedure_occurrence')
+    
+    DECLARE @lab_root NVARCHAR(50) = 'lab'
+    
+    SELECT DISTINCT
+      RootId                        = NULL
+    , ParentId                      = NULL
+    , ExternalId                    = @lab_root + ':' + CONVERT(NVARCHAR(20), X.concept_id)
+    , ExternalParentId              = @lab_root + ':' + CONVERT(NVARCHAR(20), X.parent_concept_id)
+    , IsPatientCountAutoCalculated  = @yes
+    , IsNumeric                     = @no
+    , IsParent                      = CASE WHEN EXISTS (SELECT 1 FROM #L AS X2 WHERE X2.parent_concept_id = X.concept_id) THEN 1 ELSE 0 END
+    , IsRoot                        = CASE WHEN X.parent_concept_id IS NULL THEN 1 ELSE 0 END
+    , IsSpecializable               = @no
+    , SqlSetId                      = @sqlset_measurement
+    , SqlSetWhere                   = '/* ' + REPLACE(REPLACE(X.concept_name, 'WITH',''),'SET','') + ' */ ' +
+                                            CASE WHEN EXISTS (SELECT 1 FROM #L AS X2 WHERE X2.parent_concept_id = X.concept_id)
+                                                    THEN 'EXISTS (SELECT 1 ' +
+                                                        '         FROM dbo.concept_ancestor AS @CA ' +
+                                                        '         WHERE @CA.descendant_concept_id = @.measurement_concept_id ' + 
+                                                        '               AND @CA.ancestor_concept_id = ' + CONVERT(NVARCHAR(20), X.concept_id) + ')'
+                                                    ELSE '@.measurement_concept_id = ' + CONVERT(NVARCHAR(20), X.concept_id)
+                                            END
+    , SqlFieldNumeric               = CONVERT(NVARCHAR(50), NULL)
+    , UiDisplayName                 = X.concept_name
+    , UiDisplayText                 = 'Had laboratory test for ' + X.concept_name
+    , UiDisplayTooltip              = NULL
+    , UiDisplayPatientCount         = 0
+    , UiNumericDefaultText          = CONVERT(NVARCHAR(50), NULL)
+    , AddDateTime                   = GETDATE()
+    , ContentLastUpdateDateTime     = GETDATE()
+    
+    , concept_id
+    , concept_name
+    , concept_code
+    , parent_concept_id
+    , parent_concept_name
+    
+    , row_id = 0
+    INTO #X
+    FROM #L AS X
+
+    /**
+     * Add temporary index on measurement_concept_id
+     */
+    CREATE NONCLUSTERED INDEX IDX_TEMP_measurement_concept_id ON [dbo].[measurement] ([measurement_concept_id]) INCLUDE ([person_id])
+    CREATE NONCLUSTERED INDEX IDX_X_0 ON #X ([IsParent]) INCLUDE ([concept_id])
+    CREATE NONCLUSTERED INDEX IDX_X_1 ON #X ([row_id])
+    CREATE NONCLUSTERED INDEX IDX_X_2 ON #X ([concept_id])
+    
+    /**
+     * DELETE non-parents with no data
+     */
+    DELETE #X
+    FROM #X AS X
+    WHERE X.IsParent = @no
+        AND NOT EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE M.measurement_concept_id = X.concept_id)
+
+    /**
+     * DELETE parents with no data
+     */
+    DELETE #X
+    FROM #X AS X
+    WHERE X.IsParent = @yes
+        AND NOT EXISTS (SELECT 1
+                        FROM dbo.measurement AS M
+                        WHERE EXISTS (SELECT 1 
+                                        FROM dbo.concept_ancestor AS CA 
+                                        WHERE CA.descendant_concept_id = M.measurement_concept_id 
+                                              AND CA.ancestor_concept_id = X.concept_id))
+
+    /**
+     * DELETE non-parents with no children
+     */
+    DELETE #X
+    FROM #X AS X
+    WHERE X.IsParent = @yes
+        AND NOT EXISTS (SELECT 1 FROM #X AS X2 WHERE X2.parent_concept_id = X.concept_id)
+
+    /**
+     * Set row_ids
+     */
+    ; WITH Y AS
+    (
+        SELECT concept_id, row_id = ROW_NUMBER() OVER (ORDER BY (SELECT 1))
+        FROM #X
+    )
+
+    UPDATE #X
+    SET row_id = Y.row_id
+    FROM #X AS X 
+        INNER JOIN Y 
+            ON X.concept_id = Y.concept_id
+
+    /**
+     * Loop through each concept
+     */
+    SET @row_id     = 1
+    SET @concept_id = 0
+    SET @max_row_id = (SELECT MAX(row_id) FROM #X)
+    DECLARE @is_parent BIT = @no
+    
+    /**
+     * Calculate UiDisplayCount and IsNumeric serially
+     */
+    WHILE @row_id <= @max_row_id
+    BEGIN
+        SET @concept_id = (SELECT TOP 1 concept_id FROM #X WHERE row_id = @row_id)
+        SET @is_parent  = (SELECT TOP 1 IsParent FROM #X WHERE row_id = @row_id)
+        
+        /* If non-parent */
+        IF @is_parent = 0
+            UPDATE #X
+            SET UiDisplayPatientCount = (SELECT COUNT(DISTINCT person_id)
+                                        FROM dbo.measurement AS M
+                                        WHERE M.measurement_concept_id = @concept_id)
+              , IsNumeric             = CASE WHEN EXISTS (SELECT 1 
+                                                        FROM dbo.measurement AS M
+                                                        WHERE M.measurement_concept_id = @concept_id
+                                                                AND M.value_as_number IS NOT NULL)
+                                            THEN 1 ELSE 0
+                                        END
+            FROM #X AS X
+            WHERE X.concept_id = @concept_id
+        
+        /* Else if parent */
+        ELSE
+            UPDATE #X
+            SET UiDisplayPatientCount = (SELECT COUNT(DISTINCT person_id)
+                                        FROM dbo.measurement AS M
+                                        WHERE EXISTS (SELECT 1 FROM dbo.concept_ancestor AS CA WHERE CA.descendant_concept_id = M.measurement_concept_id AND CA.ancestor_concept_id = @concept_id))
+            FROM #X AS X
+            WHERE X.concept_id = @concept_id
+        
+        SET @row_id += 1
+    END
+    
+    DROP INDEX IDX_TEMP_measurement_concept_id ON [dbo].[measurement]
+
+    /**
+     * For concepts with multiple parents, set ancestry
+     * to that with the highest patient count (yes, a somewhat arbitrary solution)
+     */
+    ; WITH A AS
+    (
+        SELECT UiDisplayName, concept_id
+        FROM #X
+        GROUP BY UiDisplayName, concept_id
+        HAVING COUNT(*) > 1
+    ), B AS
+    (
+        SELECT A.UiDisplayName, A.concept_id, X.parent_concept_id, X.UiDisplayPatientCount
+        FROM A INNER JOIN #X AS X
+                ON A.concept_id = X.concept_id
+    )
+    , C AS
+    (
+        SELECT UiDisplayName, concept_id, parent_concept_id, max_parent_id = (SELECT TOP 1 parent_concept_id FROM B AS B2 WHERE B2.concept_id = B.concept_id ORDER BY UiDisplayPatientCount DESC)
+        FROM B
+    )
+    , D AS
+    (
+        SELECT DISTINCT UiDisplayName, concept_id, max_parent_id 
+        FROM C
+    )
+    
+    DELETE #X
+    FROM #X AS X
+        INNER JOIN D
+            ON X.concept_id = D.concept_id
+            AND D.max_parent_id != X.parent_concept_id
+
+    /**
+     * Set numeric lab test-specific column values
+     */
+    UPDATE #X
+    SET UiNumericDefaultText = 'of any result' 
+    , SqlFieldNumeric      = '@.value_as_number'
+    WHERE IsNumeric = 1
+
+    /**
+     * Set root Concept text
+     */
+    UPDATE #X
+    SET UiDisplayName = 'Labs'
+    , UiDisplayText = 'Had a laboratory test performed'
+    WHERE IsRoot = 1
+
+    /**
+     * Remove parent's name from child Concept name
+     * to improve readability
+     */
+    UPDATE #X
+    SET UiDisplayName = LTRIM(RTRIM(REPLACE(C.UiDisplayName, P.UiDisplayName, '')))
+    FROM #X AS C
+        INNER JOIN (SELECT * FROM #X) AS P
+            ON C.ExternalParentId = P.ExternalId
+
+    /**
+     * More name cleanup
+     */
+    UPDATE #X
+    SET UiDisplayName = LTRIM(RTRIM(RIGHT(UiDisplayName, LEN(UiDisplayName)-2)))
+    WHERE LEFT(UiDisplayName, 2) = '| '
+
+    UPDATE #X
+    SET UiDisplayName = LTRIM(RTRIM(RIGHT(UiDisplayName, LEN(UiDisplayName)-1)))
+    WHERE LEFT(UiDisplayName, 1) = '.'
+        OR LEFT(UiDisplayName, 1) = '/'
+
+    UPDATE #X
+    SET UiDisplayName = UPPER(LEFT(UiDisplayName, 1)) + RIGHT(UiDisplayName, LEN(UiDisplayName)-1)
+
+    UPDATE #X
+    SET UiDisplayName = LTRIM(RTRIM(REPLACE(UiDisplayName, 'XXX |', '')))
+    WHERE UiDisplayName LIKE '%XXX%'
+
+    /**
+     * Find value_as_concept lab tests
+     * (e.g., tests with 'Positive' or 'Negative' results)
+     */
+    SELECT 
+          concept_id					 = X.concept_id
+        , concept_name				     = X.concept_name
+        , measurement_concept_id         = M.value_as_concept_id
+        , measurement_value_concept_name = C.concept_name
+        , cnt                            = COUNT(DISTINCT m.person_id)
+    INTO #Y
+    FROM #X AS X
+         INNER JOIN dbo.measurement AS M
+            ON X.concept_id = M.measurement_concept_id
+         INNER JOIN dbo.concept AS C
+            ON C.concept_id = M.value_as_concept_id
+    WHERE X.IsParent = @no
+          AND M.value_as_concept_id IS NOT NULL
+    GROUP BY  X.concept_id, X.concept_name, M.value_as_concept_id, C.concept_name
+
+    /** 
+     * Update IsParent flag for Concepts with child `value_as_concept_id` Concepts
+     */
+    UPDATE #X
+    SET IsParent = 1
+    FROM #X AS X
+    WHERE EXISTS (SELECT 1 FROM #Y AS Y WHERE X.concept_id = Y.concept_id)
+
+    /**
+     * Final INSERT
+     */
+    INSERT INTO LeafDB.app.Concept (ExternalId, ExternalParentId, IsPatientCountAutoCalculated, IsNumeric, IsParent, IsRoot, IsSpecializable,
+                                    SqlSetId, SqlSetWhere, UiDisplayName, UiDisplayText, UiDisplayTooltip, UiDisplayPatientCount, UiNumericDefaultText, SqlFieldNumeric,
+                                    AddDateTime, ContentLastUpdateDateTime)
     SELECT
-		ExternalId					 = @lab_root
-	  , ExternalParentId			 = NULL
-	  , IsPatientCountAutoCalculated = @yes
-	  , IsNumeric					 = @no
-	  , IsParent					 = @yes
-	  , IsRoot					     = @yes
-	  , IsSpecializable			     = @no
-	  , SqlSetId					 = @sqlset_measurement
-	  , SqlSetWhere					 = 'EXISTS (SELECT 1 FROM dbo.leaf_loinc_ontology AS @O WHERE @.measurement_concept_id = @O.concept_id)'
-	  , UiDisplayName				 = 'Labs'
-	  , UiDisplayText				 = 'Had a laboratory test performed'
-	  , UiDisplayTooltip			 = NULL
-	  , UiDisplayPatientCount        = (SELECT COUNT(DISTINCT M.person_id) FROM dbo.measurement AS M WHERE M.measurement_concept_id IN (SELECT F.concept_id FROM #F AS F))
-	  , AddDateTime				     = GETDATE()
-	  , ContentLastUpdateDateTime	 = GETDATE()
+      ExternalId
+    , ExternalParentId
+    , IsPatientCountAutoCalculated
+    , IsNumeric
+    , IsParent
+    , IsRoot
+    , IsSpecializable
+    , SqlSetId
+    , SqlSetWhere
+    , UiDisplayName
+    , UiDisplayText
+    , UiDisplayTooltip
+    , UiDisplayPatientCount
+    , UiNumericDefaultText
+    , SqlFieldNumeric
+    , AddDateTime
+    , ContentLastUpdateDateTime
+    FROM #X AS X
+
     UNION ALL
 
-    /* Labs */ 
-	SELECT
-		ExternalId					 = @lab_root + ':' + F.CodePath
-	  , ExternalParentId			 = @lab_root + ':' + F.ParentCodePath
-	  , IsPatientCountAutoCalculated = @yes
-	  , IsNumeric					 = @no
-	  , IsParent					 = CASE WHEN F.ParentCodePath IS NULL THEN @yes
-									        WHEN EXISTS (SELECT 1 FROM #posneg AS PS WHERE F.CodePath = PS.CodePath) THEN @yes 
-											ELSE @no 
-									   END
-	  , IsRoot					     = @no
-	  , IsSpecializable			     = @no
-	  , SqlSetId					 = @sqlset_measurement
-	  , SqlSetWhere					 = 
-			CASE 
-				WHEN F.concept_code IS NOT NULL THEN '/* LOINC:' + F.concept_code  +' */ @.measurement_concept_id = ''' + CONVERT(NVARCHAR(20),F.concept_id) + '''' 
-				ELSE 'EXISTS (SELECT 1 FROM dbo.leaf_loinc_ontology AS @O WHERE @O.CodePath LIKE ''' + F.CodePath + '%'' AND @.measurement_concept_id = @O.concept_id)' 
-			END
-	  , UiDisplayName				 = F.UiDisplayName
-	  , UiDisplayText				 = 
-			CASE 
-				WHEN F.concept_code IS NOT NULL THEN 'Had a lab test for ' + F.UiDisplayName + ' performed'
-				ELSE 'Had a laboratory test related to ' + F.UiDisplayName + ' performed'
-			END
-	  , UiDisplayTooltip			 = NULL
-	  , UiDisplayPatientCount        = CASE WHEN F.concept_code IS NOT NULL THEN F.instance_count ELSE NULL END
-	  , AddDateTime				     = GETDATE()
-	  , ContentLastUpdateDateTime	 = GETDATE()
-	FROM #F AS F
-    UNION ALL
+    SELECT
+      ExternalId					 = X.ExternalId + ':' + CONVERT(NVARCHAR(50), Y.measurement_concept_id)
+    , ExternalParentId               = X.ExternalId
+    , X.IsPatientCountAutoCalculated
+    , X.IsNumeric						
+    , IsParent                       = @no
+    , X.IsRoot
+    , X.IsSpecializable
+    , X.SqlSetId
+    , SqlSetWhere                    = X.SqlSetWhere + ' AND @.value_as_concept_id = ' + CONVERT(NVARCHAR(50), Y.measurement_concept_id)
+    , UiDisplayName                  = Y.measurement_value_concept_name
+    , UiDisplayText                  = X.UiDisplayText + ' that was ' + Y.measurement_value_concept_name
+    , X.UiDisplayTooltip
+    , UiDisplayPatientCount          = Y.cnt
+    , X.UiNumericDefaultText
+    , X.SqlFieldNumeric
+    , X.AddDateTime
+    , X.ContentLastUpdateDateTime
+    FROM #Y AS Y
+        INNER JOIN #X AS X
+            ON Y.concept_id = X.concept_id
 
-	/* Lab results (pos, neg, etc.) */ 
-	SELECT
-		ExternalId					 = @lab_root + ':' + F.CodePath + ':' + F.concept_name
-	  , ExternalParentId			 = @lab_root + ':' + F.CodePath
-	  , IsPatientCountAutoCalculated = @yes
-	  , IsNumeric					 = @no
-	  , IsParent					 = @no
-	  , IsRoot					     = @no
-	  , IsSpecializable			     = @no
-	  , SqlSetId					 = @sqlset_measurement
-	  , SqlSetWhere					 = '/* LOINC:' + F.concept_code  +' */ @.measurement_concept_id = ' + CONVERT(NVARCHAR(20),F.measurement_concept_id) + ' AND @.value_as_concept_id = ' + CONVERT(NVARCHAR(20),F.value_as_concept_id)
-	  , UiDisplayName				 = F.concept_name
-	  , UiDisplayText				 = 'Had a laboratory test for ' + F.UiDisplayName + ' performed that was ' + F.concept_name
-	  , UiDisplayTooltip			 = NULL
-	  , UiDisplayPatientCount        = F.instance_count
-	  , AddDateTime				     = GETDATE()
-	  , ContentLastUpdateDateTime	 = GETDATE()
-	FROM #posneg AS F
-
-	/*
-	 * Set numeric concepts
-	 */
-	; WITH X AS
-	(
-		SELECT ExternalId   = @lab_root + ':' + F.CodePath
-		FROM #F AS F
-		WHERE EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE M.value_as_number IS NOT NULL AND F.concept_id = M.measurement_concept_id)
-	)
-	UPDATE LeafDB.app.Concept
-	SET [IsNumeric]          = @yes
-	  , UiNumericDefaultText = 'of any result'
-	  , SqlFieldNumeric      = '@.value_as_number'
-	FROM LeafDB.app.Concept AS C
-		 INNER JOIN X 
-			ON C.ExternalId = X.ExternalId
-
-	/**
-	 * Create leaf_loinc_ontology table
-	 */
-	SELECT
-		CodePath = CONVERT(VARCHAR(900), CodePath)
-	  , ParentCodePath
-	  , AUI
-	  , ParentAUI
-	  , concept_id
-	  , concept_code
-	  , instance_count
-	INTO dbo.leaf_loinc_ontology
-	FROM #F
-
-    CREATE NONCLUSTERED INDEX idx_CodePath ON dbo.leaf_loinc_ontology (CodePath) INCLUDE (concept_id)
-
+    /**
+     * Set ParentId based on ExternalIds
+     */
+    UPDATE LeafDB.app.Concept
+    SET ParentId = P.Id
+    FROM LeafDB.app.Concept AS C
+        INNER JOIN (SELECT P.Id, P.ParentId, P.ExternalId
+                    FROM LeafDB.app.Concept AS P) AS P
+                            ON C.ExternalParentID = P.ExternalID
+    WHERE C.ParentId IS NULL
+    
     /**
      * Set RootIds
      */
     ; WITH roots AS
     (
-        SELECT 
-              RootId           = C.Id
+        SELECT RootId            = C.Id
             , RootUiDisplayName = C.UiDisplayName
             , C.IsRoot
             , C.Id
@@ -595,11 +466,10 @@ BEGIN
             , C.UiDisplayName
         FROM LeafDB.app.Concept AS C
         WHERE C.IsRoot = 1
-
+    
         UNION ALL
-
-        SELECT 
-              roots.RootId
+    
+        SELECT roots.RootId
             , roots.RootUiDisplayName
             , C2.IsRoot
             , C2.Id
@@ -609,7 +479,7 @@ BEGIN
             INNER JOIN LeafDB.app.Concept AS C2
                 ON C2.ParentId = roots.Id
     )
-
+    
     UPDATE LeafDB.app.Concept
     SET RootId = roots.RootId
     FROM LeafDB.app.Concept AS C

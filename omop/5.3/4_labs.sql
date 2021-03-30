@@ -211,9 +211,9 @@ BEGIN
     DELETE #X
     FROM #X AS X
     WHERE X.IsParent = @yes
-        AND NOT EXISTS (SELECT 1
-                        FROM dbo.measurement AS M
-                        WHERE EXISTS (SELECT 1 
+          AND NOT EXISTS (SELECT 1
+                          FROM dbo.measurement AS M
+                          WHERE EXISTS (SELECT 1 
                                         FROM dbo.concept_ancestor AS CA 
                                         WHERE CA.descendant_concept_id = M.measurement_concept_id 
                                               AND CA.ancestor_concept_id = X.concept_id))
@@ -224,7 +224,7 @@ BEGIN
     DELETE #X
     FROM #X AS X
     WHERE X.IsParent = @yes
-        AND NOT EXISTS (SELECT 1 FROM #X AS X2 WHERE X2.parent_concept_id = X.concept_id)
+          AND NOT EXISTS (SELECT 1 FROM #X AS X2 WHERE X2.parent_concept_id = X.concept_id)
 
     /**
      * Set row_ids
@@ -264,8 +264,8 @@ BEGIN
                                         FROM dbo.measurement AS M
                                         WHERE M.measurement_concept_id = @concept_id)
               , IsNumeric             = CASE WHEN EXISTS (SELECT 1 
-                                                        FROM dbo.measurement AS M
-                                                        WHERE M.measurement_concept_id = @concept_id
+                                                          FROM dbo.measurement AS M
+                                                          WHERE M.measurement_concept_id = @concept_id
                                                                 AND M.value_as_number IS NOT NULL)
                                             THEN 1 ELSE 0
                                         END
@@ -276,8 +276,11 @@ BEGIN
         ELSE
             UPDATE #X
             SET UiDisplayPatientCount = (SELECT COUNT(DISTINCT person_id)
-                                        FROM dbo.measurement AS M
-                                        WHERE EXISTS (SELECT 1 FROM dbo.concept_ancestor AS CA WHERE CA.descendant_concept_id = M.measurement_concept_id AND CA.ancestor_concept_id = @concept_id))
+                                         FROM dbo.measurement AS M
+                                         WHERE EXISTS (SELECT 1 
+                                                       FROM dbo.concept_ancestor AS CA 
+                                                       WHERE CA.descendant_concept_id = M.measurement_concept_id 
+                                                             AND CA.ancestor_concept_id = @concept_id))
             FROM #X AS X
             WHERE X.concept_id = @concept_id
         

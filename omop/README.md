@@ -9,12 +9,12 @@ a generalizable starting point in Leaf configuration, saving time and energy in 
 (while also providing examples of how to configure Leaf programmatically!)
 
 The scripts in this repo assume:
-1 - You're working using SQL Server as your RDBMS.
-2 - You have a 'vanilla' OMOP database with no renamed columns or tables.
-3 - Your Leaf application database exists on the same server and is named `LeafDB`.
+ 1. You're working using SQL Server as your RDBMS.
+ 2. You have a 'vanilla' OMOP database with no renamed columns or tables.
+ 3. Your Leaf application database exists on the same server and is named `LeafDB`.
 
 While (1) and (2) should not be surprising, (3) is not the case for everyone, so before
-running the setup scripts **be sure to first rename `LeafDB` -> `YourDatabaseName` in any scripts you run**.
+running the setup scripts **be sure to first rename modify the scripts, replacing `LeafDB` -> `YourLocalDatabaseName`**.
 
 The scripts are designed to build a basic Concept tree shaped like the following:
  - **Demographics** [2_demographics.sql](./5.3/2_demographics.sql)

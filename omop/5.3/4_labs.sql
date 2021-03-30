@@ -7,16 +7,16 @@
  *         so on along the way.
  *
  *         Importantly, the script build Leaf concepts' SQL by leveraging 
- *         the OMOP dbo.concept_ancestor table. As this table contains *many* 
+ *         the OMOP `dbo.concept_ancestor` table. As this table contains *many* 
  *         but not *all* necessary ancestor-descendent relationships needed, 
  *         the script begins by recursively back-filling any missing relationships 
- *         present in the dbo.concept_relationship (of 'Is a' type) and inserting 
- *         them in the dbo.concept_ancestor table.  
+ *         present in the `dbo.concept_relationship` (of 'Is a' type) and inserting 
+ *         them in the `dbo.concept_ancestor` table.  
  *         
  *         Because of this (and other processes downstream, including patient count 
  *         calculation) the script may take time to run, depending on the specifics 
  *         of database size, hardware, etc. Where possible, the script  
- *         manages it's own temporary indices and cleans up after itself.
+ *         manages its own temporary indices and cleans up after itself.
  */
 BEGIN
 

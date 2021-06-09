@@ -108,7 +108,7 @@ BEGIN
          , SqlSetId              = @sqlset_person
          , SqlSetWhere           = NULL
          , SqlFieldNumeric       = NULL
-         , UiDisplayName         = 'Ethncity'
+         , UiDisplayName         = 'Ethnicity'
          , UiDisplayText         = 'Have ethnicity data'
          , UiDisplayUnits        = NULL
          , UiNumericDefaultText  = NULL

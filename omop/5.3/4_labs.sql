@@ -203,7 +203,7 @@ BEGIN
     DELETE #X
     FROM #X AS X
     WHERE X.IsParent = @no
-        AND NOT EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE M.measurement_concept_id = X.concept_id)
+          AND NOT EXISTS (SELECT 1 FROM dbo.measurement AS M WHERE M.measurement_concept_id = X.concept_id)
 
     /**
      * DELETE parents with no data
@@ -219,7 +219,7 @@ BEGIN
                                               AND CA.ancestor_concept_id = X.concept_id))
 
     /**
-     * DELETE non-parents with no children
+     * DELETE parents with no children
      */
     DELETE #X
     FROM #X AS X

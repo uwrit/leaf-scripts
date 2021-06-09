@@ -41,5 +41,5 @@ DECLARE @sql NVARCHAR(MAX)     =
         LEFT JOIN dbo.death AS D
             ON P.person_id = D.person_id'
 
-INSERT INTO dbo.DemographicQuery ([Lock],[SqlStatement],[Shape],[LastChanged],[ChangedBy])
+INSERT INTO app.DemographicQuery ([Lock],[SqlStatement],[Shape],[LastChanged],[ChangedBy])
 SELECT 'X', @sql, @demog_query_shape, GETDATE(), @user

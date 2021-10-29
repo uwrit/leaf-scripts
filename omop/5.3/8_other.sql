@@ -20,7 +20,7 @@ DECLARE @sql NVARCHAR(MAX)     =
     , deceasedDateTime  = D.death_datetime
     , ethnicity         = c_ethnicity.concept_name
     , gender            = c_gender.concept_name
-    , deceasedBoolean   = CONVERT(BIT, CASE WHEN D.person_id IS NULL THEN 1 ELSE 0 END)
+    , deceasedBoolean   = CONVERT(BIT, CASE WHEN D.person_id IS NULL THEN 0 ELSE 1 END)
     , hispanicBoolean   = CONVERT(BIT, CASE WHEN c_ethnicity.concept_name = ''Hispanic or Latino'' THEN 1 ELSE 0 END)
     , marriedBoolean    = CONVERT(BIT, 0)
     , language          = CONVERT(NVARCHAR(1),NULL) /* Not in OMOP */

@@ -12,6 +12,19 @@
  * Config instructions: https://leafdocs.rit.uw.edu/installation/installation_steps/6_appsettings/#compiler
  */
 
+/**
+ * Cheatsheet code to clear the current concept tree:
+
+     TRUNCATE TABLE app.ConceptTokenizedIndex
+     TRUNCATE TABLE app.ConceptForwardIndex
+     DELETE app.ConceptInvertedIndex
+     DELETE rela.QueryConceptDependency
+     DELETE app.ConceptEvent
+     DELETE app.Concept
+     DELETE app.ConceptSqlSet
+     
+ */
+
 DECLARE @user NVARCHAR(20) = 'pcornet_leaf_script'
 DECLARE @yes BIT = 1
 DECLARE @no  BIT = 0
@@ -58,20 +71,28 @@ CREATE TABLE #concepts (
  * Demographics
  */
 DECLARE @sqlset_demographic INT = (SELECT TOP 1 Id FROM app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.DEMOGRAPHIC')
+DECLARE @sqlset_death INT       = (SELECT TOP 1 Id FROM app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.DEATH')
 
 DECLARE @uid_demog_root   NVARCHAR(50) = 'urn:leaf:concept:demographic'
 DECLARE @uid_demog_sex    NVARCHAR(50) = 'urn:leaf:concept:demographic:sex'
 DECLARE @uid_demog_ethnic NVARCHAR(50) = 'urn:leaf:concept:demographic:ethnicity'
 DECLARE @uid_demog_race   NVARCHAR(50) = 'urn:leaf:concept:demographic:race'
 DECLARE @uid_demog_age    NVARCHAR(50) = 'urn:leaf:concept:demographic:age'
+DECLARE @uid_demog_vital  NVARCHAR(50) = 'urn:leaf:concept:demographic:vital'
 
 ; WITH sex AS
 (
     SELECT *
     FROM (VALUES 
-                ('Ambiguous', 'Were physically undifferentiated at birth', '@.SEX = ''A''', @uid_demog_sex + ':A'),
-                ('Female',    'Were female at birth',                      '@.SEX = ''F''', @uid_demog_sex + ':F'),
-                ('Male',      'Were male at birth',                        '@.SEX = ''M''', @uid_demog_sex + ':M')
+                ('Female', 'Were female at birth', '@.SEX = ''F''', @uid_demog_sex + ':F'),
+                ('Male',   'Were male at birth',   '@.SEX = ''M''', @uid_demog_sex + ':M')
+         ) AS X(UiDisplayName, UiDisplayText, SqlSetWhere, UniversalId)
+), vital AS
+(
+    SELECT *
+    FROM (VALUES 
+                ('Living',  'Patients are living',   'NOT EXISTS (SELECT 1 FROM dbo.DEATH AS @D WHERE @.PATID = @D.PATID)', @uid_demog_vital + ':L'),
+                ('Deceased','Patients are deceased', 'EXISTS (SELECT 1 FROM dbo.DEATH AS @D WHERE @.PATID = @D.PATID)',     @uid_demog_vital + ':D')
          ) AS X(UiDisplayName, UiDisplayText, SqlSetWhere, UniversalId)
 ), ethnicity AS
 (
@@ -234,6 +255,41 @@ SELECT ExternalId            = @uid_demog_age
      , UiDisplayUnits        = 'years old'
      , UiNumericDefaultText  = 'any current age'
 
+UNION ALL     
+ 
+/* Vital status parent */     
+SELECT ExternalId            = @uid_demog_vital
+     , ExternalParentId      = @uid_demog_root
+     , UniversalId           = @uid_demog_vital
+     , [IsNumeric]           = @no
+     , IsParent              = @yes
+     , IsRoot                = @no
+     , SqlSetId              = @sqlset_demographic
+     , SqlSetWhere           = NULL
+     , SqlFieldNumeric       = NULL
+     , UiDisplayName         = 'Vital Status'
+     , UiDisplayText         = 'Have a vital status'
+     , UiDisplayUnits        = NULL
+     , UiNumericDefaultText  = NULL
+
+UNION ALL 
+
+/* Vital status */     
+SELECT ExternalId            = X.UniversalId
+     , ExternalParentId      = @uid_demog_vital
+     , UniversalId           = X.UniversalId
+     , [IsNumeric]           = @no
+     , IsParent              = @no
+     , IsRoot                = @no
+     , SqlSetId              = @sqlset_demographic
+     , SqlSetWhere           = X.SqlSetWhere
+     , SqlFieldNumeric       = NULL
+     , UiDisplayName         = X.UiDisplayName
+     , UiDisplayText         = X.UiDisplayText
+     , UiDisplayUnits        = NULL
+     , UiNumericDefaultText  = NULL
+FROM vital AS X    
+
 /** 
  * Encounters
  */
@@ -251,6 +307,7 @@ DECLARE @uid_enc_root NVARCHAR(50) = 'urn:leaf:concept:encounter'
                 ('Inpatient',           'Admitted as an Inpatient',                                   '@.ENC_TYPE = ''IP''', @uid_enc_root + ':IP')
          ) AS X(UiDisplayName, UiDisplayText, SqlSetWhere, UniversalId)
 )
+
 
 INSERT INTO #concepts (ExternalId, ExternalParentId, UniversalId, [IsNumeric], IsParent, IsRoot, SqlSetId, SqlSetWhere, 
                        SqlFieldNumeric, UiDisplayName, UiDisplayText, UiDisplayUnits, UiNumericDefaultText)

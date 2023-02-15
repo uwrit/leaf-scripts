@@ -22,8 +22,8 @@ DECLARE @no  BIT = 0
 INSERT INTO app.ConceptSqlSet (SqlSetFrom, IsEncounterBased, IsEventBased, SqlFieldDate, Created, CreatedBy, Updated, UpdatedBy)
 SELECT *
 FROM (VALUES ('dbo.DEMOGRAPHIC',          @no,  @no,  NULL,             GETDATE(), @user, GETDATE(), @user),                          
-             ('dbo.ENCOUNTER',            @yes, @no, '@.ADMIT_DATE',	GETDATE(), @user, GETDATE(), @user),
-             ('dbo.DIAGNOSIS',            @yes, @no, '@.DX_DATE',		GETDATE(), @user, GETDATE(), @user),
+             ('dbo.ENCOUNTER',            @yes, @no, '@.ADMIT_DATE',	  GETDATE(), @user, GETDATE(), @user),
+             ('dbo.DIAGNOSIS',            @yes, @no, '@.DX_DATE',	  GETDATE(), @user, GETDATE(), @user),
              ('dbo.PROCEDURES',           @yes, @no, '@.PX_DATE',       GETDATE(), @user, GETDATE(), @user),          
              ('dbo.VITAL',                @yes, @no, '@.MEASURE_DATE',  GETDATE(), @user, GETDATE(), @user),  
              ('dbo.LAB_RESULT_CM',        @yes, @no, '@.SPECIMEN_DATE', GETDATE(), @user, GETDATE(), @user),
@@ -297,7 +297,52 @@ FROM encounters AS X
 DECLARE @sqlset_dx INT = (SELECT TOP 1 Id FROM app.ConceptSqlSet WHERE SqlSetFrom = 'dbo.DIAGNOSIS')
 
 DECLARE @uid_dx_root  NVARCHAR(50) = 'urn:leaf:concept:dx'
-DECLARE @uid_dx_icd10 NVARCHAR(50) = 'urn:leaf:concept:dx:icd10'
+
+/** 
+ * Create a temporary table for transforming ICD-10
+ */
+BEGIN TRY DROP TABLE #icd10 END TRY BEGIN CATCH END CATCH
+BEGIN TRY DROP TABLE #icd10_2 END TRY BEGIN CATCH END CATCH
+SELECT  
+     AUI
+    ,ParentAUI
+    ,[ParentUniversalId] = 'urn:leaf:concept:dx:icd10:' + (SELECT TOP 1 CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END 
+                                                          FROM [TestDB].dbo.[UMLS_ICD10] AS X2
+                                                          WHERE X.ParentAUI = X2.AUI)
+    ,[UniversalId]      = 'urn:leaf:concept:dx:icd10:' + CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END
+    ,[IsParent]         = CASE WHEN CodeCount = 1 THEN 0 ELSE 1 END
+    ,[SqlSetWhere]      = '@.DX_TYPE = ''10'' AND @.DX ' + [SqlSetWhere]
+    ,[UiDisplayName]
+    ,[UiDisplayText]    = 'Had diagnosis of ' + [UiDisplayName]
+INTO #icd10    
+FROM [TestDB].dbo.[UMLS_ICD10] AS X
+
+/** 
+ * Using this UniversalId naming convention, occassionally ICD-10 code ranges can be duplicated.
+ * Use a CTE with ROW_NUMBER() to identify cases of dupes. We'll add a count to the end of each 
+ * duplicated UniversalId to de-dupe them
+ */
+; WITH icd10 AS
+(
+     SELECT 
+          AUI, ParentAUI, UniversalId, SqlSetWhere, UiDisplayName, UiDisplayText, IsParent, 
+          RowNum = ROW_NUMBER() OVER (PARTITION BY UniversalId ORDER BY UniversalId)
+     FROM #ICD10
+), icd10_2 AS
+(
+     SELECT 
+          AUI
+        , ParentAUI
+        , UniversalId = CASE WHEN RowNum > 1 THEN UniversalId + '_' + CONVERT(NVARCHAR(2), RowNum) ELSE UniversalId END
+        , SqlSetWhere
+        , UiDisplayName
+        , UiDisplayText
+        , IsParent
+     FROM icd10
+)
+SELECT * 
+INTO #icd10_2 
+FROM icd10_2
 
 INSERT INTO #concepts (ExternalId, ExternalParentId, UniversalId, [IsNumeric], IsParent, IsRoot, SqlSetId, SqlSetWhere, 
                        SqlFieldNumeric, UiDisplayName, UiDisplayText, UiDisplayUnits, UiNumericDefaultText)
@@ -320,12 +365,12 @@ SELECT ExternalId            = @uid_dx_root
 UNION ALL 
 
 /* Diagnoses - ICD10 root */ 
-SELECT ExternalId            = @uid_dx_root
-     , ExternalParentId      = @uid_dx_icd10
-     , UniversalId           = @uid_dx_root
+SELECT ExternalId            = (SELECT TOP 1 UniversalId FROM #icd10_2 WHERE ParentAUI IS NULL)
+     , ExternalParentId      = @uid_dx_root
+     , UniversalId           = (SELECT TOP 1 UniversalId FROM #icd10_2 WHERE ParentAUI IS NULL)
      , [IsNumeric]           = @no
      , IsParent              = @yes
-     , IsRoot                = @yes
+     , IsRoot                = @no
      , SqlSetId              = @sqlset_dx
      , SqlSetWhere           = NULL
      , SqlFieldNumeric       = NULL
@@ -336,12 +381,12 @@ SELECT ExternalId            = @uid_dx_root
      
 UNION ALL 
 
-/* Diagnoses - ICD10 codes TODO */ 
-SELECT ExternalId            = @uid_dx_icd10 + ':'
-     , ExternalParentId      = @uid_enc_root
+/* Diagnoses - ICD10 codes */ 
+SELECT ExternalId            = X.UniversalId
+     , ExternalParentId      = (SELECT TOP 1 UniversalId FROM #icd10_2 AS X2 WHERE X.ParentAUI = X2.AUI)
      , UniversalId           = X.UniversalId
      , [IsNumeric]           = @no
-     , IsParent              = @no
+     , IsParent              = X.IsParent
      , IsRoot                = @no
      , SqlSetId              = @sqlset_dx
      , SqlSetWhere           = X.SqlSetWhere
@@ -350,7 +395,8 @@ SELECT ExternalId            = @uid_dx_icd10 + ':'
      , UiDisplayText         = X.UiDisplayText
      , UiDisplayUnits        = NULL
      , UiNumericDefaultText  = NULL
-FROM TestDB.UMLS_ICD10 AS X    
+FROM #icd10_2 AS X    
+WHERE ParentAUI IS NOT NULL
 
 /** 
  * Final steps: Add to Leaf

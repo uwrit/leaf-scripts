@@ -375,7 +375,7 @@ SELECT
     ,[UiDisplayName]
     ,[UiDisplayText]    = 'Had diagnosis of ' + [UiDisplayName]
 INTO #icd10    
-FROM [TestDB].dbo.[UMLS_ICD10] AS X
+FROM dbo.[UMLS_ICD10] AS X
 
 /** 
  * Using this UniversalId naming convention, occassionally ICD-10 code ranges can be duplicated.
@@ -483,7 +483,7 @@ SELECT
     ,[UiDisplayName]
     ,[UiDisplayText]    = 'Had the procedure ' + [UiDisplayName]
 INTO #cpt    
-FROM [TestDB].dbo.[UMLS_CPT] AS X
+FROM dbo.[UMLS_CPT] AS X
 
 /** 
  * Using this UniversalId naming convention, occassionally CPT code ranges can be duplicated.
@@ -583,7 +583,7 @@ SELECT
      AUI
     ,ParentAUI
     ,[ParentUniversalId] = 'urn:leaf:concept:px:icd10pcs:' + (SELECT TOP 1 CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END 
-                                                          FROM [TestDB].dbo.[UMLS_ICD10PCS] AS X2
+                                                          FROM dbo.[UMLS_ICD10PCS] AS X2
                                                           WHERE X.ParentAUI = X2.AUI)
     ,[UniversalId]      = 'urn:leaf:concept:px:icd10pcs:' + CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END
     ,[IsParent]         = CASE WHEN CodeCount = 1 THEN 0 ELSE 1 END

@@ -1,6 +1,6 @@
 /**
  *
- * Authors: Nic Dobbins, Ross Naheedy
+ * Authors: Nic Dobbins, Ross Naheedy, Cherise Woods
  *
  * The script auto-populates the Leaf concept tree with PCORNet-specific fields and tables.
  * PCORNET uses the fields `PATID` and `ENCOUNTERID` to track patient and encounter identifiers.
@@ -15,8 +15,9 @@
  * Config instructions: https://leafdocs.rit.uw.edu/installation/installation_steps/6_appsettings/#compiler
  *
  *
-/**
- * Cheatsheet code to clear the current concept tree:
+ **/
+
+ /* Cheatsheet code to clear the current concept tree:
 
      TRUNCATE TABLE app.ConceptTokenizedIndex
      TRUNCATE TABLE app.ConceptForwardIndex
@@ -25,7 +26,6 @@
      DELETE app.ConceptEvent
      DELETE app.Concept
      DELETE app.ConceptSqlSet
-     
  */
 
 DECLARE @user NVARCHAR(20) = 'pcornet_leaf_script'
@@ -38,8 +38,8 @@ DECLARE @no  BIT = 0
 INSERT INTO app.ConceptSqlSet (SqlSetFrom, IsEncounterBased, IsEventBased, SqlFieldDate, Created, CreatedBy, Updated, UpdatedBy)
 SELECT *
 FROM (VALUES ('dbo.DEMOGRAPHIC',          @no,  @no,  NULL,             GETDATE(), @user, GETDATE(), @user),                          
-             ('dbo.ENCOUNTER',            @yes, @no, '@.ADMIT_DATE',	  GETDATE(), @user, GETDATE(), @user),
-             ('dbo.DIAGNOSIS',            @yes, @no, '@.DX_DATE',	  GETDATE(), @user, GETDATE(), @user),
+             ('dbo.ENCOUNTER',            @yes, @no, '@.ADMIT_DATE',	GETDATE(), @user, GETDATE(), @user),
+             ('dbo.DIAGNOSIS',            @yes, @no, '@.DX_DATE',	    GETDATE(), @user, GETDATE(), @user),
              ('dbo.PROCEDURES',           @yes, @no, '@.PX_DATE',       GETDATE(), @user, GETDATE(), @user),          
              ('dbo.VITAL',                @yes, @no, '@.MEASURE_DATE',  GETDATE(), @user, GETDATE(), @user),  
              ('dbo.LAB_RESULT_CM',        @yes, @no, '@.SPECIMEN_DATE', GETDATE(), @user, GETDATE(), @user),
@@ -367,7 +367,7 @@ SELECT
      AUI
     ,ParentAUI
     ,[ParentUniversalId] = 'urn:leaf:concept:dx:icd10:' + (SELECT TOP 1 CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END 
-                                                          FROM [TestDB].dbo.[UMLS_ICD10] AS X2
+                                                          FROM dbo.[UMLS_ICD10] AS X2
                                                           WHERE X.ParentAUI = X2.AUI)
     ,[UniversalId]      = 'urn:leaf:concept:dx:icd10:' + CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END
     ,[IsParent]         = CASE WHEN CodeCount = 1 THEN 0 ELSE 1 END
@@ -475,7 +475,7 @@ SELECT
      AUI
     ,ParentAUI
     ,[ParentUniversalId] = 'urn:leaf:concept:px:cpt:' + (SELECT TOP 1 CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END 
-                                                          FROM [TestDB].dbo.[UMLS_CPT] AS X2
+                                                          FROM dbo.[UMLS_CPT] AS X2
                                                           WHERE X.ParentAUI = X2.AUI)
     ,[UniversalId]      = 'urn:leaf:concept:px:cpt:' + CASE WHEN CodeCount = 1 THEN MinCode ELSE MinCode + '_' + MaxCode END
     ,[IsParent]         = CASE WHEN CodeCount = 1 THEN 0 ELSE 1 END
@@ -591,7 +591,7 @@ SELECT
     ,[UiDisplayName]
     ,[UiDisplayText]    = 'Had the procedure ' + [UiDisplayName]
 INTO #icd10pcs    
-FROM [TestDB].dbo.[UMLS_ICD10PCS] AS X
+FROM dbo.[UMLS_ICD10PCS] AS X
 
 /** 
  * Using this UniversalId naming convention, occassionally ICD10PCS code ranges can be duplicated.
@@ -674,7 +674,7 @@ SELECT ExternalId            = X.UniversalId
      , UiDisplayUnits        = NULL
      , UiNumericDefaultText  = NULL
 FROM #icd10pcs_2 AS X    
-WHERE ParentAUI IS NOT NULL
+WHERE ParentAUI != 'A16077350'
 
 /** 
  * Final steps: Add to Leaf
@@ -734,7 +734,7 @@ WHERE C.ParentId IS NULL
         , C2.ParentId
         , C2.UiDisplayName
     FROM roots
-         INNER JOIN LeafDB.app.Concept AS C2 ON C2.ParentId = roots.Id
+         INNER JOIN app.Concept AS C2 ON C2.ParentId = roots.Id
 )
 
 UPDATE app.Concept

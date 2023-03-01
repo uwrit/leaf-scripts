@@ -23,9 +23,11 @@
      TRUNCATE TABLE app.ConceptForwardIndex
      DELETE app.ConceptInvertedIndex
      DELETE rela.QueryConceptDependency
+     DELETE app.PanelFilter
      DELETE app.ConceptEvent
      DELETE app.Concept
      DELETE app.ConceptSqlSet
+
  */
 
 DECLARE @user NVARCHAR(20) = 'pcornet_leaf_script'

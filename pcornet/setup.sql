@@ -745,5 +745,43 @@ FROM app.Concept AS C
      INNER JOIN roots ON C.Id = roots.Id
 WHERE C.RootId IS NULL
 
+/**
+ * Set Basic Demographics query (for Visualize and Patient List tabs)
+ */
+DELETE app.DemographicQuery
 
-
+INSERT INTO app.DemographicQuery (Lock, Shape, LastChanged, ChangedBy, SqlStatement)
+SELECT Lock         = 'X'
+     , Shape        = 3
+     , LastChanged  = GETDATE()
+     , ChangedBy    = @user
+     , SqlStatement = 
+     'SELECT
+        d.PATID AS personId,
+        '' AS addressPostalCode,
+        '' AS addressState,
+        d.BIRTH_DATE AS birthDate,
+        (SELECT TOP 1 d2.DEATH_DATE FROM DEATH d2 WHERE d2.PATID = d.PATID) AS deceasedDateTime,
+        CASE d.HISPANIC WHEN ''Y'' then ''Hispanic or Latino'' ELSE ''Not Hispanic or Latino'' END AS ethnicity,
+        CASE d.sex WHEN ''F'' THEN ''Female'' WHEN ''M'' THEN ''Male'' ELSE ''Other'' END AS gender,
+        ''Unknown'' AS [language],
+        ''Unknown'' AS maritalStatus,
+        CAST(0 AS BIT) AS marriedBoolean,
+        CAST(CASE WHEN d.hispanic = ''Y'' THEN 1 ELSE 0 END AS BIT) AS hispanicBoolean,
+        CAST(CASE WHEN EXISTS (SELECT d2.DEATH_DATE FROM DEATH d2 WHERE d2.PATID = d.PATID) THEN 0 ELSE 1 END AS BIT) AS deceasedBoolean,
+        ''Unknown Unknown'' AS [name],
+        ''Unknown'' AS mrn,
+        CASE d.race
+                WHEN ''05'' THEN ''White''
+                WHEN ''03'' THEN ''Black or African American''
+                WHEN ''02'' THEN ''Asian''
+                WHEN ''04'' THEN ''Native Hawaiian or Other Pacific Islander''
+                WHEN ''01'' THEN ''American Indian or Alaska Native''
+                WHEN ''06'' THEN ''Multi-racial''
+                WHEN ''NI'' THEN ''Unknown''
+                WHEN ''UN'' THEN ''Unknown''
+                WHEN ''OT'' THEN ''Other''
+                ELSE ''Other''
+                END AS race,
+        ''Unknown'' AS religion
+     FROM DEMOGRAPHIC d'

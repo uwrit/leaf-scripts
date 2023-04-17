@@ -768,7 +768,7 @@ SELECT Lock         = 'X'
         ''Unknown'' AS maritalStatus,
         CAST(0 AS BIT) AS marriedBoolean,
         CAST(CASE WHEN d.hispanic = ''Y'' THEN 1 ELSE 0 END AS BIT) AS hispanicBoolean,
-        CAST(CASE WHEN EXISTS (SELECT d2.DEATH_DATE FROM DEATH d2 WHERE d2.PATID = d.PATID) THEN 0 ELSE 1 END AS BIT) AS deceasedBoolean,
+        CAST(CASE WHEN EXISTS (SELECT d2.DEATH_DATE FROM DEATH d2 WHERE d2.PATID = d.PATID) THEN 1 ELSE 0 END AS BIT) AS deceasedBoolean,
         ''Unknown Unknown'' AS [name],
         ''Unknown'' AS mrn,
         CASE d.race

@@ -105,8 +105,8 @@ http://127.0.0.1:3000/
 
 - If you are working in a forked leaf repository for development you will need to do some additional updates to ensure the files from this repository aren't committed back to the fork. you will need to customize ```prepare_compose.sh``` in the following ways: 
   - Remove leaf download and folder expansion logic. 
-  - Add the following block to your forked repository in ```.gitignore``` to ignore the injected files from this repository by ``` prepare_compose.sh ```:
-  ```
+  - Add the following block to your forked repository in ```.gitignore``` to ignore the injected files from this repository by ```prepare_compose.sh ```:
+ ```sh 
 ./src/db/build/entrypoint.sh
 ./src/db/build/LeafDB.ServiceAccount.sql
 ./src/db/build/LeafDB.EmptyLocalClinicalDB.sql
@@ -117,7 +117,7 @@ http://127.0.0.1:3000/
 ./src/server/api_Dockerfile
 ./src/server/.env
 ./src/server/ui-client/
-  ```
+```
   - You will need to update prepare_compose to copy deployment files into the forked repository instead of the locally downloaded ```leaf-master``` folder.
 
 - As the context here is a development instance of Leaf, api_server/entrypoint.sh refers to the version of the API that is being compiled at container build time. The Leaf repository also comes with a pre-packaged version of Leaf that can be started at /app/API/ instead of /var/opt/leafapi/api/API/.

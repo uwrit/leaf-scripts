@@ -7,7 +7,7 @@ The three different types of environments are:
 
 The non-prod and production deployments are built assuming you are deploying Leaf to a local Docker instance using cloud tools:
 - Either Github or Gitlab as your code management tool
-- Using either a local runner on a server with Docker installed where the runner account is a member of the 'docker' group (so can manage containers)
+- Using a local runner (gitlab or github) on a server with Docker installed where the runner account is a member of the 'docker' group (so can manage containers)
 - Using a separate database server:
   - A SQL Server for hosting the Leaf Application Database
   - A database server hosting the Clinical Data (could be the same server as the Application Database SQL Server)

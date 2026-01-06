@@ -1,0 +1,57 @@
+version: '3.8'  
+services:  
+  # Database Service Provided for Local Development scenarios
+  leaf_db:  
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: leaf_db_demo  
+    ports:  
+      - "1433:1433"  
+    env_file:
+      - ./database_server/db_.env
+    entrypoint: /app/entrypoint.sh
+    volumes:
+      - ./leaf-master/src/db/build:/app  
+      - sqlserver_data:/var/opt/mssql # Persistent storage for database files
+    networks:
+      leaf-net:
+        aliases:
+          - leafdb
+
+  # API Service  
+
+  leaf_api:  
+    build:  
+      context: ./leaf-master/src/server  
+      dockerfile: api_Dockerfile  
+    container_name: leaf_api_demo  
+    ports:  
+      - "5001:5001"  
+      - "3000:3000"  
+    env_file:
+      - ./api_server/.env
+    volumes:  
+      - ./logs:/logs
+    networks:
+      leaf-net:
+        aliases:
+          - leafapi
+
+  # UI Client Service  
+  ui_client:  
+    build:  
+      context: ./leaf-master/src/ui-client  
+      dockerfile: web_Dockerfile  
+    container_name: leaf_web_demo  
+    ports:  
+      - "3001:80"  
+    networks:
+      - leaf-net
+
+
+networks:
+  leaf-net:
+    driver: bridge
+
+
+
+

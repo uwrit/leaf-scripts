@@ -1,0 +1,17 @@
+default:
+  before_script:
+    - docker info
+
+build_leaf:
+  tags:
+    - my_leaf_env
+  environment: my_leaf_env
+  script:
+    - chmod +x prepare_cicd_compose.sh
+    - ./prepare_cicd_compose.sh
+    - docker compose -f apionly-compose.yml build leaf_api
+    - docker compose -f apionly-compose.yml build leaf_web
+    - docker compose -f apionly-compose.yml up -d leaf_api
+    - docker compose -f apionly-compose.yml up -d leaf_web
+  when: manual
+

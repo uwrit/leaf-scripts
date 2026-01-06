@@ -1,0 +1,31 @@
+FROM node:20 AS node_base
+FROM httpd:latest
+
+## install node from node image
+COPY --from=node_base /usr/local/bin /usr/local/bin 
+COPY --from=node_base /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
+# apache customization
+COPY httpd_leaf.conf /usr/local/apache2/conf/
+RUN echo "Include conf/httpd_leaf.conf" >> /usr/local/apache2/conf/httpd.conf
+
+RUN sed -i \
+		-e 's/^#\(LoadModule .*mod_proxy.so\)/\1/' \
+		-e 's/^#\(LoadModule .*mod_proxy_http.so\)/\1/' \
+		conf/httpd.conf
+
+#RUN a2enmod proxy proxy_http && ae2nsite leaf.josh.rit.uw.edu
+
+# shibboleth stuff goes here
+# TRANSLATE INSTALL https://gitlab.iths.org/rit_infrastructure/ansible/-/blob/master/service_setup/shibboleth.yml?ref_type=heads
+#COPY shibboleth2.xml /etc/shibboleth/shibboleth2.xml
+#COPY attribute-map.xml /etc/shibboleth/attribute-map.xml
+
+COPY . /app
+WORKDIR /app
+
+COPY ./certs /certs
+
+RUN npm install --legacy-peer-deps
+RUN npm run build
+

@@ -1,0 +1,41 @@
+version: '3.8'  
+services:  
+
+  # Leaf API Service
+  leaf_api_prod:  
+    build:  
+      context: ./leaf-master/src/server  
+      dockerfile: prodapi_Dockerfile  
+    container_name: leaf_api_prod
+    restart: unless-stopped
+    environment:
+      - LEAF_JWT_KEY_PW
+      - LEAF_APP_DB
+      - LEAF_CLIN_DB
+    env_file:
+      - ./api_server/.env_cicd
+    networks:
+      leaf-demo-net:
+        aliases:
+          - leafapi
+
+  # UI Client Service  
+  leaf_web_prod:  
+    build:  
+      context: ./leaf-master/src/ui-client  
+      dockerfile: shibweb_Dockerfile  
+    restart: unless-stopped 
+    container_name: leaf_web_prod  
+    ports:  
+      - "443:443"
+    networks:
+      - leaf-demo-net
+
+
+networks:
+  leaf-demo-net:
+    driver: bridge
+
+
+
+

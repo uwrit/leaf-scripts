@@ -1,0 +1,28 @@
+name: Build Production Leaf Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+
+jobs:
+  build_leaf:
+    runs-on: [self-hosted, leaf]
+    steps:
+      - name: Check out the repository to the runner
+        uses: actions/checkout@v5
+      - name: Fix Preparation Script Permissions
+        run: chmod +x prepare_cicd_compose.sh
+      - name: Run Preparation Script to Download Leaf and Distribute
+        run: ./prepare_cicd_compose.sh
+      - name: Docker Compose Build API Container
+        run: docker compose -f apionly-compose.yml build leaf_api_prod
+      - name: Docker Compose Web Container
+        run: docker compose -f apionly-compose.yml build leaf_web_prod
+      - name: Start API Container 
+        run: docker compose -f apionly-compose.yml up -d leaf_api_prod
+      - name: Start Web Container 
+        run: docker compose -f apionly-compose.yml up -d leaf_api_prod

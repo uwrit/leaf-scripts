@@ -1,0 +1,40 @@
+version: '3.8'  
+services:  
+
+  # Leaf API Service
+  leaf_api:  
+    build:  
+      context: ./leaf-master/src/server  
+      dockerfile: api_Dockerfile  
+    restart: unless-stopped
+    container_name: leaf_api 
+    environment:
+      - LEAF_JWT_KEY_PW
+      - LEAF_APP_DB
+      - LEAF_CLIN_DB
+    env_file:
+      - ./api_server/.env_cicd
+    networks:
+      leaf-api-net:
+        aliases:
+          - leafapi
+
+  # UI Client Service  
+  leaf_web:  
+    build:  
+      context: ./leaf-master/src/ui-client  
+      dockerfile: web_Dockerfile  
+      restart: unless-stopped
+    container_name: leaf_web  
+    ports:  
+      - "3006:80"
+    networks:
+      - leaf-api-net
+
+networks:
+  leaf-api-net:
+    driver: bridge
+
+
+
+

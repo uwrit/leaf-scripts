@@ -1,0 +1,16 @@
+default:
+  before_script:
+    - docker info
+
+initialize_compose:
+  tags:
+    - leaf_prod
+  environment: leaf_prod
+  script:
+    - chmod +x prepare_cicd_compose.sh
+    - ./prepare_cicd_compose.sh
+    - docker compose -f prod_compose.yml build leaf_api_prod
+    - docker compose -f prod_compose.yml build leaf_web_prod
+    - docker compose -f prod_compose.yml up -d leaf_api_prod
+    - docker compose -f prod_compose.yml up -d leaf_web_prod
+  when: manual

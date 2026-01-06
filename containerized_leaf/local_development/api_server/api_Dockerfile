@@ -1,0 +1,57 @@
+FROM node:20 AS node_base
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+
+# download API
+# RUN wget https://github.com/uwrit/leaf/archive/refs/heads/master.zip
+# RUN unzip master.zip
+# WORKDIR /leaf-master/src/server/API
+
+## install node from node image
+COPY --from=node_base /usr/local/bin /usr/local/bin 
+COPY --from=node_base /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
+
+RUN useradd leaf                \
+    && mkdir /home/leaf/        \
+    && chown leaf /home/leaf/   \
+    && groupadd leafg           \
+    && usermod -a -G leafg leaf
+
+
+COPY --chown=leaf:leafg --chmod=750 . /app
+
+RUN mkdir /var/opt/leafapi && mkdir /var/opt/leafapi/keys && mkdir /var/opt/leafapi/api && chown -R leaf:leafg /var/opt/leafapi
+
+USER leaf
+
+# Configure Environment Variables
+ENV LEAF_JWT_CERT /var/opt/leafapi/keys/cert.pem
+ENV LEAF_JWT_KEY  /var/opt/leafapi/keys/leaf.pfx
+ENV SERILOG_DIR   /logs
+ENV ASPNETCORE_URLS=http://0.0.0.0:5001
+ENV DOTNET_RUNNING_IN_CONTAINER true
+ENV DOTNET_USE_POLLING_FILE_WATCHER true
+ENV NUGET_XMLDOC_MODE skip
+ENV PATH /app/ui-client/node_modules/.bin:$PATH
+
+
+# install node dependencies
+WORKDIR /app/ui-client
+RUN npm install --legacy-peer-deps
+
+WORKDIR /app
+# build API no auth
+RUN dotnet publish -c Debug -o /var/opt/leafapi/api
+
+# build API with auth
+# RUN dotnet publish -c Release -o /var/opt/leafapi/api
+
+COPY --chown=leaf:leaf cert.pem /var/opt/leafapi/keys/
+COPY --chown=leaf:leaf key.pem /var/opt/leafapi/keys/
+COPY --chown=leaf:leaf leaf.pfx /var/opt/leafapi/keys/
+COPY --chown=leaf:leaf appsettings.json /var/opt/leafapi/api
+
+## REMEMBER YOUR docker-compose.yml must include a mapping to the keys folder for the API to start properly.
+
+CMD /bin/bash ./entrypoint.sh

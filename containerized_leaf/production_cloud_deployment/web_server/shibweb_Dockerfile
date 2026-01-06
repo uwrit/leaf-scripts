@@ -1,0 +1,137 @@
+# BUILD STAGE: compile log4shib, xml-security-c, xmltooling, opensaml, shibboleth-sp
+FROM ubuntu:22.04 AS builder
+ENV DEBIAN_FRONTEND=noninteractive
+ARG PREFIX=/opt/shibboleth-sp
+ARG MAKEFLAGS="-j$(nproc)"
+# Versions pinned to known-good upstream tarballs
+ARG LOG4SHIB_VER=2.0.1
+ARG XMLSEC_VER=3.0.0
+ARG XMLTOOLING_VER=3.3.0
+ARG OPENSAML_VER=3.3.1
+ARG SHIBSP_VER=3.5.1
+
+# Build deps runtime libs
+RUN apt-get update && apt-get install -y \
+    build-essential autoconf automake libtool pkg-config cmake \
+    apache2 apache2-dev \
+    curl ca-certificates \
+    zlib1g-dev libssl-dev libcurl4-openssl-dev \
+    libxerces-c-dev \
+    libboost-all-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+# Where sources will be unpacked
+WORKDIR /src
+
+# Fetch sources official Shibboleth download locations
+RUN curl -fsSL https://shibboleth.net/downloads/log4shib/${LOG4SHIB_VER}/log4shib-${LOG4SHIB_VER}.tar.gz -o log4shib.tar.gz && \
+    curl -fsSL https://shibboleth.net/downloads/xml-security-c/${XMLSEC_VER}/xml-security-c-${XMLSEC_VER}.tar.gz -o xmlsec.tar.gz && \
+    curl -fsSL https://shibboleth.net/downloads/c++-opensaml/${OPENSAML_VER}/xmltooling-${XMLTOOLING_VER}.tar.gz -o xmltooling.tar.gz && \
+    curl -fsSL https://shibboleth.net/downloads/c++-opensaml/${OPENSAML_VER}/opensaml-${OPENSAML_VER}.tar.gz -o opensaml.tar.gz && \
+    curl -fsSL https://shibboleth.net/downloads/service-provider/${SHIBSP_VER}/shibboleth-sp-${SHIBSP_VER}.tar.gz -o shibsp.tar.gz
+
+# Unpack
+RUN tar xzf log4shib.tar.gz && \
+    tar xzf xmlsec.tar.gz     && \
+    tar xzf xmltooling.tar.gz && \
+    tar xzf opensaml.tar.gz   && \
+    tar xzf shibsp.tar.gz
+
+# Ensure pkg-config can find libs installed under $PREFIX
+ENV PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig"
+ENV CPPFLAGS="-I${PREFIX}/include"
+ENV LDFLAGS="-L${PREFIX}/lib"
+
+# log4shib
+WORKDIR /src/log4shib-${LOG4SHIB_VER}
+RUN ./configure --disable-static --disable-doxygen --prefix="${PREFIX}" \
+ && make -j"$(nproc)" && make install 
+
+# xml-security-c needs Xerces
+WORKDIR /src/xml-security-c-${XMLSEC_VER}
+RUN ./configure --prefix="${PREFIX}" --without-xalan --disable-static \
+ && make -j"$(nproc)" && make install
+
+# xmltooling
+WORKDIR /src/xmltooling-${XMLTOOLING_VER}
+RUN ./configure --prefix="${PREFIX}" --with-xmlsec \
+ && make -j"$(nproc)" && make install
+
+# opensaml
+WORKDIR /src/opensaml-${OPENSAML_VER}
+RUN ./configure --prefix="${PREFIX}" \
+ && make -j"$(nproc)" && make install
+
+# shibboleth-sp (build Apache 2.4 module using apxs2)
+WORKDIR /src/shibboleth-sp-${SHIBSP_VER}
+RUN ./configure --prefix="${PREFIX}" --with-apxs2=/usr/bin/apxs2 \
+ && make -j"$(nproc)" && make install
+
+# package the install tree 
+RUN tar czf /shibboleth-sp-${SHIBSP_VER}.tar.gz -C /opt shibboleth-sp
+
+
+# runtime with Apache + built SP
+FROM node:20 AS node_base
+FROM httpd:latest
+
+ARG PREFIX=/opt/shibboleth-sp
+
+COPY . /app
+WORKDIR /app
+
+## install node from node image
+COPY --from=node_base /usr/local/bin /usr/local/bin 
+COPY --from=node_base /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
+# Copy built SP
+COPY --from=builder ${PREFIX} ${PREFIX}
+
+# apache customization for shibboleth
+# Enable required Apache modules via replaced httpd.conf
+# RUN a2enmod ssl headers rewrite proxy proxy_http && a2enconf shib
+# enable shibboleth on site via shib_leaf.conf
+
+COPY shib_leaf.conf /usr/local/apache2/conf/
+COPY shib_httpd.conf /usr/local/apache2/conf/httpd.conf
+COPY httpd-ssl.conf /usr/local/apache2/conf/extra/httpd-ssl.conf
+
+RUN mkdir -p /certs/private/
+RUN cp /app/certs/*.cert /certs/
+RUN cp /app/certs/private/* /certs/private/
+RUN chmod 644 /certs/*.cert
+RUN chmod 600 /certs/private/*
+
+# Make the SP's lib directory visible to loader
+RUN printf "%s\n" "${PREFIX}/lib" > /etc/ld.so.conf.d/shibboleth-sp.conf && ldconfig
+
+RUN apt-get update && apt-get install -y \
+    libcurl4 \
+    libssl3 \
+    libxerces-c3.2 \
+    zlib1g \
+    ca-certificates \
+    procps \
+    curl  \
+    iproute2  \
+    net-tools   \ 
+    vim  \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --legacy-peer-deps
+RUN npm run build
+
+# Shibboleth configs 
+RUN cp /app/shibboleth2.xml ${PREFIX}/etc/shibboleth/shibboleth2.xml
+RUN cp /app/attribute-map.xml ${PREFIX}/etc/shibboleth/attribute-map.xml
+
+# Simple entrypoint: start shibd, then Apache in foreground
+#   -p writes PID file; -f runs in foreground 
+#   -w waits for sockets; adjust as needed
+RUN chmod +x entrypoint.sh
+
+
+
+EXPOSE 443
+CMD ["/app/entrypoint.sh"]
+

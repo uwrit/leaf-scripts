@@ -1,0 +1,4 @@
+<Attributes xmlns="urn:mace:shibboleth:2.0:attribute-map" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <Attribute name="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified" id="nameID"/>
+    <Attribute name="http://schemas.microsoft.com/ws/2008/06/identity/claims/role" id="uwGroups" />
+</Attributes>

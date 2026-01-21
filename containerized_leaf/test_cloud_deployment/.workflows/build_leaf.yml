@@ -11,6 +11,7 @@ on:
 jobs:
   build_leaf:
     runs-on: [self-hosted, leaf]
+    environment: test
     steps:
       - name: Check out the repository to the runner
         uses: actions/checkout@v5
@@ -26,3 +27,7 @@ jobs:
         run: docker compose -f apionly-compose.yml up -d leaf_api
       - name: Start Web Container 
         run: docker compose -f apionly-compose.yml up -d leaf_api
+    env:
+      LEAF_APP_DB: ${{ secrets.LEAF_APP_DB }}
+      LEAF_CLIN_DB: ${{ secrets.LEAF_CLIN_DB }}
+      LEAF_JWT_KEY_PW: ${{ secrets.LEAF_JWT_KEY_PW }}

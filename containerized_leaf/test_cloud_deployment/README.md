@@ -20,7 +20,7 @@ This deployment assumes you are only deploying an API container and a Web Front 
 
 First we'll need to first create CI/CD variables in our repository. These are our 'password' variables that define our database connections. 
 
-- Github: Settings --> Secrets & Variables --> Actions. (Or if using separate environments in your repository, go to Settings --> Environments --> [choose your environment])
+- Github: Settings --> Secrets & Variables --> Actions --> Secrets. (Or if using separate environments in your repository, go to Settings --> Environments --> [choose your environment])
 - Gitlab: Settings --> CI/CD --> Variables.
 
 Make sure to attach the variable to the right environment if using separate environments. (Defining an environment in your ci file is enough to ensure it exists.)
